@@ -35,7 +35,7 @@ namespace YARG.Core.Benchmarks
                         "source", 1960 + 10 * random.Next(7), 200),
                     ChartDifficulty = SkillModel.ChartDifficulty(random.Next(7), Difficulty.Expert),
                     Identity = SongNormalizer.Identity(artist, key),
-                    ArtistPosition = Enumerable.Range(0, 32).Select(_ => (float) random.NextDouble() - 0.5f).ToArray(),
+                    Position = Enumerable.Range(0, 32).Select(_ => (float) random.NextDouble() - 0.5f).ToArray(),
                 };
             }
 

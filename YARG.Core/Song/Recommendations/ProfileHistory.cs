@@ -40,9 +40,10 @@ namespace YARG.Core.Song.Recommendations
         public bool Canonical = true;
 
         /// <summary>
-        /// Where the song's artist sits on the <see cref="ArtistMap"/>, or null.
+        /// Where the song sits on the <see cref="SongMap"/> (or where its artist does, if the map does not
+        /// know the song), or null.
         /// </summary>
-        public float[]? ArtistPosition;
+        public float[]? Position;
 
         public string? Artist => First(FeatureType.Artist);
         public string? Genre => First(FeatureType.Genre);

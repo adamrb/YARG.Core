@@ -17,6 +17,16 @@ namespace YARG.Core.Song.Recommendations
         Charter,
         Source,
         Length,
+
+        /// <summary>
+        /// Where the song ranks among its artist's songs on the <see cref="SongMap"/>: a hit or a deep cut.
+        /// </summary>
+        ArtistRank,
+
+        /// <summary>
+        /// How many people on the <see cref="SongMap"/> listen to the song.
+        /// </summary>
+        Listeners,
     }
 
     /// <summary>

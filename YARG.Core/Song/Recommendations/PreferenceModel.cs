@@ -7,7 +7,7 @@ namespace YARG.Core.Song.Recommendations
     /// <summary>
     /// A per-profile preference model: L2-regularized logistic regression with one learned weight per song
     /// feature (each artist, genre word, decade, source and so on) plus a learned direction on the
-    /// <see cref="ArtistMap"/>. Nothing is hand-weighted; the data decides what matters for the player.
+    /// <see cref="SongMap"/>. Nothing is hand-weighted; the data decides what matters for the player.
     /// </summary>
     /// <remarks>
     /// Songs with positive evidence are positives and those with negative evidence negatives, each weighted
@@ -28,6 +28,7 @@ namespace YARG.Core.Song.Recommendations
 
         // Map positions have unit length; scaling them lets one L2 penalty suit both kinds of input
         private const float POSITION_SCALE = 4f;
+        private const float PRIOR_STRENGTH = 1f;
 
         public static readonly PreferenceModel Empty = new();
 
@@ -46,7 +47,7 @@ namespace YARG.Core.Song.Recommendations
                 if (_index.TryGetValue(feature, out int i)) score += _weights[i];
             }
 
-            var position = song.ArtistPosition;
+            var position = song.Position;
             if (position != null && position.Length == _direction.Length)
             {
                 for (int d = 0; d < position.Length; d++) score += _direction[d] * position[d] * POSITION_SCALE;
@@ -65,7 +66,7 @@ namespace YARG.Core.Song.Recommendations
 
             var model = new PreferenceModel();
             var rows = new List<(int[] Features, float[]? Position, float Label, float Weight)>();
-            int dims = library.Values.FirstOrDefault(s => s.ArtistPosition != null)?.ArtistPosition!.Length ?? 0;
+            int dims = library.Values.FirstOrDefault(s => s.Position != null)?.Position!.Length ?? 0;
 
             int[] Encode(SongFacts song)
             {
@@ -84,7 +85,7 @@ namespace YARG.Core.Song.Recommendations
                 return indices.ToArray();
             }
 
-            float[]? PositionOf(SongFacts song) => song.ArtistPosition?.Length == dims ? song.ArtistPosition : null;
+            float[]? PositionOf(SongFacts song) => song.Position?.Length == dims ? song.Position : null;
 
             int positives = 0;
             foreach (var (key, value) in evidence)
@@ -93,6 +94,8 @@ namespace YARG.Core.Song.Recommendations
                 if (value > 0f) positives++;
                 rows.Add((Encode(song), PositionOf(song), value > 0f ? 1f : 0f, Math.Min(Math.Abs(value), MAX_EXAMPLE_WEIGHT)));
             }
+
+            int evidenceRows = rows.Count;
 
             // Every chart of a song with evidence (or held out) stays out of the implicit negatives
             var touched = new HashSet<string>(evidence.Keys.Concat(heldOut ?? Enumerable.Empty<string>())
@@ -106,9 +109,25 @@ namespace YARG.Core.Song.Recommendations
                 rows.Add((Encode(song), PositionOf(song), 0f, IMPLICIT_NEGATIVE_WEIGHT));
             }
 
+            // The map direction starts at (and is pulled toward) the average position of the songs the
+            // profile likes minus those it dislikes: with only a few answers, "near what they like" is the
+            // best guess, and more answers move the direction where the evidence says
+            var prior = new float[dims];
+            foreach (var (_, position, label, weight) in rows.Take(evidenceRows))
+            {
+                if (position == null) continue;
+                for (int d = 0; d < dims; d++) prior[d] += (label > 0f ? weight : -weight) * position[d];
+            }
+
+            float priorLength = (float) Math.Sqrt(prior.Sum(x => x * x));
+            if (priorLength > 0f)
+            {
+                for (int d = 0; d < dims; d++) prior[d] *= PRIOR_STRENGTH / priorLength;
+            }
+
             // Full-batch AdaGrad on weighted log loss plus L2 (the bias is not regularized)
             var weights = new Parameters(model._index.Count);
-            var direction = new Parameters(dims);
+            var direction = new Parameters(dims, prior);
             var bias = new Parameters(1);
             for (int iteration = 0; iteration < ITERATIONS; iteration++)
             {
@@ -150,11 +169,15 @@ namespace YARG.Core.Song.Recommendations
             public readonly float[] Gradient;
             private readonly float[] _history;
 
-            public Parameters(int count)
+            private readonly float[]? _prior;
+
+            /// <param name="prior">Where the values start and what L2 pulls them toward; zero if null.</param>
+            public Parameters(int count, float[]? prior = null)
             {
-                Values = new float[count];
+                Values = prior != null ? (float[]) prior.Clone() : new float[count];
                 Gradient = new float[count];
                 _history = new float[count];
+                _prior = prior;
             }
 
             public void ClearGradient() => Array.Clear(Gradient, 0, Gradient.Length);
@@ -163,7 +186,7 @@ namespace YARG.Core.Song.Recommendations
             {
                 for (int i = 0; i < Values.Length; i++)
                 {
-                    float g = Gradient[i] + l2 * Values[i];
+                    float g = Gradient[i] + l2 * (Values[i] - (_prior?[i] ?? 0f));
                     _history[i] += g * g;
                     Values[i] -= LEARNING_RATE * g / ((float) Math.Sqrt(_history[i]) + 1e-6f);
                 }

@@ -10,6 +10,9 @@ public class SongNormalizerTests
     [TestCase("Voodoo Child (Slight Return) (Live)", "voodoo child slight return")]
     [TestCase("Song [Remastered]", "song")]
     [TestCase("(I Just) Died in Your Arms", "i just died in your arms")]
+    [TestCase("Hotel California - 2013 Remaster", "hotel california")]
+    [TestCase("Numb - Live", "numb")]
+    [TestCase("Rock - Paper - Scissors", "rock paper scissors")]
     public void Title_DropsVersionNotesButKeepsNameBrackets(string title, string expected)
     {
         Assert.That(SongNormalizer.Title(title), Is.EqualTo(expected));
@@ -33,7 +36,7 @@ public class SongNormalizerTests
         Assert.That(SongNormalizer.Artist(artist), Is.EqualTo(expected));
     }
 
-    // The same cases the artist map builder (Tools/ArtistMap/build_artist_map.py in YARG) must agree with:
+    // The same cases the song map builder (Tools/SongMap/build_song_map.py in YARG) must agree with:
     // the game looks artists up by SongNormalizer.Artist of SortString.SearchStr
     [TestCase("Æther Realm", "aether realm")]
     [TestCase("Björk", "bjork")]
@@ -44,7 +47,7 @@ public class SongNormalizerTests
     [TestCase("AC/DC", "ac dc")]
     [TestCase("Guns N' Roses", "guns n roses")]
     [TestCase("Mø", "mø")]
-    public void Artist_OfSearchStringMatchesTheArtistMapBuilder(string artist, string expected)
+    public void Artist_OfSearchStringMatchesTheSongMapBuilder(string artist, string expected)
     {
         Assert.That(SongNormalizer.Artist(new SortString(artist).SearchStr), Is.EqualTo(expected));
     }

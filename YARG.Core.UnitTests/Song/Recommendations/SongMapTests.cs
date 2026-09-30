@@ -1,0 +1,66 @@
+using NUnit.Framework;
+using YARG.Core.Song.Recommendations;
+
+namespace YARG.Core.UnitTests.Song.Recommendations;
+
+public class SongMapTests
+{
+    private static readonly SongMap Map = SongMap.Parse(new[]
+    {
+        "# comment",
+        "a\tpresidents of the united states of america\t0.6\t0.8",
+        "t\tpresidents of the united states of america|peaches\t4200\t0.00\t1\t0",
+        "t\tpresidents of the united states of america|kitty\t300\t0.50\t0\t1",
+        "broken line",
+    });
+
+    [Test]
+    public void Place_UsesTheSongsOwnPositionAndPopularity()
+    {
+        var (position, popularity) = Map.Place("The Presidents of the United States of America (Harmonix)", "Peaches (Live)");
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(position, Is.EqualTo(new[] { 1f, 0f }));
+            Assert.That(popularity, Is.EquivalentTo(new[]
+            {
+                new SongFeature(FeatureType.ArtistRank, "hit"),
+                new SongFeature(FeatureType.Listeners, "under 5000"),
+            }));
+            Assert.That(Map.Place("The Presidents of the United States of America", "Kitty").Popularity,
+                Does.Contain(new SongFeature(FeatureType.ArtistRank, "deep cut")));
+        }
+    }
+
+    [Test]
+    public void Place_FallsBackToTheArtistForSongsTheMapDoesNotKnow()
+    {
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(Map.Place("The Presidents of the United States of America", "Lump").Position, Is.EqualTo(new[] { 0.6f, 0.8f }));
+            Assert.That(Map.Place("The Presidents of the United States of America", "Lump").Popularity, Is.Empty);
+            Assert.That(Map.Place("Nobody", "Anything").Position, Is.Null);
+            Assert.That(SongMap.Similarity(Map.Place("The Presidents of the United States of America", "Peaches").Position,
+                new[] { 1f, 0f }), Is.EqualTo(1f));
+        }
+    }
+
+    [Test]
+    public void Parse_SkipsNonFiniteValuesAndMismatchedLengthsAndScalesToUnitLength()
+    {
+        var map = SongMap.Parse(new[]
+        {
+            "a\ta\t3\t4",
+            "a\tb\tNaN\t1",
+            "a\tc\tInfinity\t1",
+            "a\td\t1\t0\t0",
+            "a\te\t0\t0",
+            "a\tf\t1e30\t1e30",
+        });
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(map.ArtistCount, Is.EqualTo(2));
+            Assert.That(map.Place("a", "x").Position, Is.EqualTo(new[] { 0.6f, 0.8f }).Within(1e-6f));
+            Assert.That(map.Place("f", "x").Position, Is.EqualTo(new[] { 0.70710677f, 0.70710677f }).Within(1e-6f));
+        }
+    }
+}

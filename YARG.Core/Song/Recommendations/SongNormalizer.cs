@@ -12,7 +12,7 @@ namespace YARG.Core.Song.Recommendations
     /// </summary>
     /// <remarks>
     /// Callers should pass text with rich-text tags and diacritics already removed
-    /// (<see cref="SortString.SearchStr"/>). The artist map build script mirrors <see cref="Artist"/>.
+    /// (<see cref="SortString.SearchStr"/>). The song map build script mirrors <see cref="Artist"/> and <see cref="Title"/>.
     /// </remarks>
     public static class SongNormalizer
     {
@@ -76,7 +76,7 @@ namespace YARG.Core.Song.Recommendations
         public static string Title(string? title)
         {
             var result = new StringBuilder();
-            ForEachBracketGroup(title, result, (group, output) =>
+            ForEachBracketGroup(WithoutDashNote(title), result, (group, output) =>
             {
                 if (!IsVersionNote(group))
                 {
@@ -96,6 +96,12 @@ namespace YARG.Core.Song.Recommendations
         /// </summary>
         public static bool IsAlternateVersion(string? title)
         {
+            string? note = DashNote(title);
+            if (note != null && Collapse(note).Split(' ').Any(AlternateVersionWords.Contains))
+            {
+                return true;
+            }
+
             bool alternate = false;
             ForEachBracketGroup(title, new StringBuilder(), (group, _) =>
                 alternate |= Collapse(group).Split(' ').Any(AlternateVersionWords.Contains));
@@ -166,6 +172,19 @@ namespace YARG.Core.Song.Recommendations
                     song.Facts.Canonical = ReferenceEquals(song.Facts, best.Facts);
                 }
             }
+        }
+
+        // Streaming services write version notes after a dash: "Song - 2011 Remaster", "Song - Live"
+        private static string? DashNote(string? title)
+        {
+            int dash = title?.LastIndexOf(" - ", StringComparison.Ordinal) ?? -1;
+            return dash > 0 && IsVersionNote(title!.Substring(dash + 3)) ? title.Substring(dash + 3) : null;
+        }
+
+        private static string? WithoutDashNote(string? title)
+        {
+            string? note = DashNote(title);
+            return note == null ? title : title!.Substring(0, title.Length - note.Length - 3);
         }
 
         private static bool IsVersionNote(string text)

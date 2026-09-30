@@ -158,7 +158,7 @@ public class TasteModelTests
     }
 
     [Test]
-    public void Score_ArtistMapCarriesTasteToNeighboringArtists()
+    public void Score_SongMapCarriesTasteToNeighboringSongs()
     {
         float[] near = { 1f, 0f };
         float[] far = { 0f, 1f };
@@ -166,9 +166,9 @@ public class TasteModelTests
         var liked = MakeSong("liked", "A", "Rock");
         var neighbor = MakeSong("neighbor", "B", "Rock");
         var stranger = MakeSong("stranger", "C", "Rock");
-        liked.ArtistPosition = near;
-        neighbor.ArtistPosition = near;
-        stranger.ArtistPosition = far;
+        liked.Position = near;
+        neighbor.Position = near;
+        stranger.Position = far;
         foreach (var s in new[] { liked, neighbor, stranger }) library[s.Key] = s;
         var taste = TasteModel.Build(library, History(new[] { Play(liked, 9, 0.9f), Play(liked, 2, 0.9f) }));
         Assert.That(taste.Score(neighbor), Is.GreaterThan(taste.Score(stranger)));
