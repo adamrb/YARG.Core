@@ -24,6 +24,9 @@ public class SongNormalizerTests
     [TestCase("Franz Ferdinand (WaveGroup)", "franz ferdinand")]
     [TestCase("The Presidents of the United States of America", "presidents of the united states of america")]
     [TestCase("Blink-182", "blink 182")]
+    [TestCase("Bob Marley & The Wailers", "bob marley the wailers")]
+    [TestCase("Bob Marley and the Wailers", "bob marley the wailers")]
+    [TestCase("The The", "the")]
     public void Artist_DropsChartersAndLeadingThe(string artist, string expected)
     {
         Assert.That(SongNormalizer.Artist(artist), Is.EqualTo(expected));

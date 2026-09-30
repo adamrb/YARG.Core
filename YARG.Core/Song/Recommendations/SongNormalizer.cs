@@ -55,12 +55,18 @@ namespace YARG.Core.Song.Recommendations
         }
 
         /// <summary>
-        /// The artist without bracketed notes (usually charter credits) and without a leading "the".
+        /// The artist without bracketed notes (usually charter credits), a leading "the", or "and", so
+        /// "The Beatles" is "beatles" and "Simon &amp; Garfunkel" matches "Simon and Garfunkel".
         /// </summary>
         public static string Artist(string? artist)
         {
-            string name = Collapse(StripBrackets(artist));
-            return name.StartsWith("the ") ? name.Substring(4) : name;
+            var words = Collapse(StripBrackets(artist)).Split(' ').Where(word => word != "and").ToList();
+            if (words.Count > 1 && words[0] == "the")
+            {
+                words.RemoveAt(0);
+            }
+
+            return string.Join(" ", words);
         }
 
         /// <summary>
