@@ -123,6 +123,83 @@ public class TasteModelTests
     }
 
     [Test]
+    public void Evidence_APassOnAFavoriteStaysAPass()
+    {
+        var song = MakeSong("s", "A", "Pop");
+        var taste = TasteModel.Build(Library(song), History(feedback: new[] { Swipe(song, false) }, favorites: new[] { "s" }));
+        Assert.That(taste.Evidence["s"], Is.LessThan(0));
+    }
+
+    [Test]
+    public void Score_SongPositionsSeparateSongsByTheSameArtist()
+    {
+        var library = BigLibrary(300, seed: 3);
+        float[] mellow = { 1f, 0f }, heavy = { 0f, 1f };
+        var liked = new[] { MakeSong("l1", "A", "Rock", title: "Ballad 1"), MakeSong("l2", "A", "Rock", title: "Ballad 2") };
+        var nearLiked = MakeSong("near", "A", "Rock", title: "Ballad 3");
+        var farFromLiked = MakeSong("far", "A", "Rock", title: "Shredder");
+        foreach (var s in liked.Append(nearLiked)) s.Position = mellow;
+        farFromLiked.Position = heavy;
+        foreach (var s in liked.Append(nearLiked).Append(farFromLiked)) library[s.Key] = s;
+        var taste = TasteModel.Build(library, History(liked.SelectMany(s => new[] { Play(s, 9, 0.9f), Play(s, 2, 0.9f) })));
+        Assert.That(taste.Score(nearLiked), Is.GreaterThan(taste.Score(farFromLiked)));
+    }
+
+    [Test]
+    public void Score_LearnsAPreferenceForHitsAcrossArtists()
+    {
+        var hit = new SongFeature(FeatureType.ArtistRank, "hit");
+        var deepCut = new SongFeature(FeatureType.ArtistRank, "deep cut");
+        SongFacts WithRank(SongFacts song, SongFeature rank)
+        {
+            song.Features = song.Features.Append(rank).ToArray();
+            return song;
+        }
+
+        var library = BigLibrary(300, seed: 4);
+        foreach (var song in library.Values) WithRank(song, song.Key.GetHashCode() % 2 == 0 ? hit : deepCut);
+        var liked = Enumerable.Range(0, 6).Select(i => WithRank(MakeSong($"h{i}", $"Hit Artist {i}", "Rock"), hit)).ToList();
+        var passed = Enumerable.Range(0, 6).Select(i => WithRank(MakeSong($"d{i}", $"Deep Artist {i}", "Rock"), deepCut)).ToList();
+        var newHit = WithRank(MakeSong("nh", "New Artist", "Rock", title: "Single"), hit);
+        var newDeepCut = WithRank(MakeSong("nd", "New Artist", "Rock", title: "B-Side"), deepCut);
+        foreach (var s in liked.Concat(passed).Append(newHit).Append(newDeepCut)) library[s.Key] = s;
+        var taste = TasteModel.Build(library, History(feedback: liked.Select(s => Swipe(s, true)).Concat(passed.Select(s => Swipe(s, false)))));
+        Assert.That(taste.Score(newHit), Is.GreaterThan(taste.Score(newDeepCut)));
+    }
+
+    [Test]
+    public void Score_LikesAndPassesBothSteerTheMapDirection()
+    {
+        var library = BigLibrary(300, seed: 5);
+        float[] likedSide = { 1f, 0f }, passedSide = { 0f, 1f };
+        var liked = MakeSong("liked", "A", "Rock");
+        var passed = MakeSong("passed", "B", "Rock");
+        var nearLiked = MakeSong("nl", "C", "Rock");
+        var nearPassed = MakeSong("np", "D", "Rock");
+        liked.Position = nearLiked.Position = likedSide;
+        passed.Position = nearPassed.Position = passedSide;
+        foreach (var s in new[] { liked, passed, nearLiked, nearPassed }) library[s.Key] = s;
+        var taste = TasteModel.Build(library, History(feedback: new[] { Swipe(liked, true), Swipe(passed, false) }));
+        Assert.That(taste.Score(nearLiked), Is.GreaterThan(taste.Score(nearPassed)));
+    }
+
+    [Test]
+    public void Score_WithoutHistoryPutsWidelyPlayedSongsFirst()
+    {
+        var popular = MakeSong("pop", "A", "Rock");
+        var obscure = MakeSong("obs", "B", "Rock");
+        var unknown = MakeSong("unk", "C", "Rock");
+        popular.Features = popular.Features.Append(new SongFeature(FeatureType.Listeners, "5000 or more")).ToArray();
+        obscure.Features = obscure.Features.Append(new SongFeature(FeatureType.Listeners, "under 200")).ToArray();
+        var taste = TasteModel.Build(Library(popular, obscure, unknown), History());
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(taste.Score(popular), Is.GreaterThan(taste.Score(obscure)));
+            Assert.That(taste.Score(obscure), Is.GreaterThan(taste.Score(unknown)));
+        }
+    }
+
+    [Test]
     public void Score_GeneralizesThroughSharedFeatures()
     {
         var liked = MakeSong("liked", "B", "Pop");

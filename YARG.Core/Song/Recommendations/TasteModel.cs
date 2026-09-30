@@ -88,7 +88,8 @@ namespace YARG.Core.Song.Recommendations
                 model.Add(songKey(quit.Key), quit.Progress < 0.5f ? EARLY_QUIT : LATE_QUIT);
             }
 
-            foreach (string key in history.Favorites.Select(songKey).Distinct())
+            // A like or pass given since takes precedence over the favorite
+            foreach (string key in history.Favorites.Select(songKey).Distinct().Where(key => !swipes.ContainsKey(key)))
             {
                 model.Add(key, FAVORITE);
             }
@@ -115,7 +116,11 @@ namespace YARG.Core.Song.Recommendations
         /// <summary>
         /// How much the profile is expected to enjoy a song, as a log-odds score.
         /// </summary>
-        public float Score(SongFacts song) => _preferences.Score(song);
+        /// <remarks>
+        /// Before the profile has done anything, songs more people listen to come first.
+        /// </remarks>
+        public float Score(SongFacts song) =>
+            _preferences == PreferenceModel.Empty ? SongMap.PopularityRank(song) : _preferences.Score(song);
 
         /// <summary>
         /// The learned weight of one feature, such as how much this profile likes an artist.

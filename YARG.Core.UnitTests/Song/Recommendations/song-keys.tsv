@@ -1,0 +1,22 @@
+# Song keys the game and the song map builder (Tools/SongMap/build_song_map.py in YARG) must agree on.
+# Columns: artist, title, expected SongNormalizer.Identity of their SortString.SearchStr (empty when unknown).
+Æther Realm	Redneck Vikings from Hell	aether realm|redneck vikings from hell
+Björk	Army of Me	bjork|army of me
+Mötley Crüe	Kickstart My Heart	motley crue|kickstart my heart
+Sigur Rós	Hoppípolla	sigur ros|hoppipolla
+Ｙｅｓ	Roundabout	ｙｅｓ|roundabout
+Beyoncé (Live)	Halo	beyonce|halo
+AC/DC	Back in Black	ac dc|back in black
+Guns N' Roses	Sweet Child O' Mine	guns n roses|sweet child o mine
+Mø	Lean On	mø|lean on
+The Beatles	Come Together	beatles|come together
+Bob Marley & The Wailers	Is This Love	bob marley the wailers|is this love
+Bob Marley and the Wailers	Is This Love	bob marley the wailers|is this love
+Franz Ferdinand (WaveGroup)	Take Me Out (Sep 3, 2005 Prototype)	franz ferdinand|take me out
+Jimi Hendrix	Voodoo Child (Slight Return) (Live)	jimi hendrix|voodoo child slight return
+Eagles	Hotel California - 2013 Remaster	eagles|hotel california
+Linkin Park	Numb - Live - 2011 Remaster	linkin park|numb
+Some Band	Rock - Paper - Scissors	some band|rock paper scissors
+Pink Floyd	Money [Remastered]	pink floyd|money
+Unknown Artist	Intro
+Some Band	Unknown Name

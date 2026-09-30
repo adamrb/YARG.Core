@@ -119,6 +119,9 @@ namespace YARG.Core.Audio
         private          float             _volume;
         private readonly Func<float, float>? _levelVolume;
         private          bool              _leveled;
+        private readonly float[]           _level = new float[1];
+        private          float             _levelSum;
+        private          int               _levelSamples;
         private readonly CancellationToken _token;
         private          bool              _disposed;
 
@@ -158,17 +161,20 @@ namespace YARG.Core.Audio
                     _mixer.FadeIn(_volume, _fadeDuration);
                     _mixer.Play();
                     watch.Restart();
-                    if (_levelVolume != null && !_leveled)
-                    {
-                        await LevelOnce(watch);
-                    }
-
+                    double nextLevelSample = LEVEL_SAMPLE_SECONDS;
                     while (watch.Elapsed.TotalSeconds < _previewLength - _fadeDuration && !_token.IsCancellationRequested)
                     {
                         if (_disposed)
                         {
                             return;
                         }
+
+                        if (_levelVolume != null && !_leveled && watch.Elapsed.TotalSeconds >= nextLevelSample)
+                        {
+                            nextLevelSample += LEVEL_SAMPLE_SECONDS;
+                            SampleLevel();
+                        }
+
                         // ReSharper disable once MethodSupportsCancellation
                         await Task.Delay(1);
                     }
@@ -201,38 +207,24 @@ namespace YARG.Core.Audio
             }
         }
 
-        private const double LEVEL_MEASURE_SECONDS = 0.5;
-        private const int LEVEL_SAMPLE_MILLISECONDS = 50;
+        private const double LEVEL_SAMPLE_SECONDS = 0.05;
+        private const int LEVEL_SAMPLES = 10;
 
         /// <summary>
-        /// Listens to the start of a play and hands the clip's average RMS level (measured before the
-        /// volume control) to the leveling function, which returns the volume to use from then on. A play
-        /// that starts silent is measured again on the next loop. Stops early for clips shorter than the
-        /// measurement, and does nothing once the preview is canceled.
+        /// Takes one reading of the clip's RMS level (measured before the volume control) while it plays.
+        /// Silent readings are skipped, so a quiet intro does not count. Once half a second of audible
+        /// readings is in, possibly across loops, the leveling function turns their average into the
+        /// volume used from then on.
         /// </summary>
-        private async Task LevelOnce(Stopwatch playTime)
+        private void SampleLevel()
         {
-            double limit = Math.Min(LEVEL_MEASURE_SECONDS, _previewLength - _fadeDuration);
-            var level = new float[1];
-            float sum = 0f;
-            int samples = 0;
-            while (playTime.Elapsed.TotalSeconds + LEVEL_SAMPLE_MILLISECONDS / 1000.0 <= limit)
+            if (_mixer.GetLevel(_level) != 0 || _level[0] <= 0.001f)
             {
-                // ReSharper disable once MethodSupportsCancellation
-                await Task.Delay(LEVEL_SAMPLE_MILLISECONDS);
-                if (_disposed || _token.IsCancellationRequested)
-                {
-                    return;
-                }
-
-                if (_mixer.GetLevel(level) == 0 && level[0] > 0.001f)
-                {
-                    sum += level[0];
-                    samples++;
-                }
+                return;
             }
 
-            if (samples == 0)
+            _levelSum += _level[0];
+            if (++_levelSamples < LEVEL_SAMPLES)
             {
                 return;
             }
@@ -240,7 +232,7 @@ namespace YARG.Core.Audio
             _leveled = true;
             try
             {
-                _volume = _levelVolume!(sum / samples);
+                _volume = _levelVolume!(_levelSum / _levelSamples);
             }
             catch (Exception ex)
             {

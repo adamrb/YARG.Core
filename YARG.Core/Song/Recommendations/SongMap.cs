@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace YARG.Core.Song.Recommendations
 {
@@ -32,6 +33,12 @@ namespace YARG.Core.Song.Recommendations
             }
         }
 
+        // Listener counts as features, least listened first: fewer than Below listeners gets Name
+        private static readonly (int Below, string Name)[] ListenerBuckets =
+        {
+            (200, "under 200"), (1000, "under 1000"), (5000, "under 5000"), (int.MaxValue, "5000 or more"),
+        };
+
         private readonly Dictionary<string, float[]> _artists = new();
         private readonly Dictionary<string, Track> _tracks = new();
         private int _dims;
@@ -54,12 +61,15 @@ namespace YARG.Core.Song.Recommendations
                 if (parts[0] == "a" && parts.Length >= 3 && map.ReadPosition(parts, 2) is { } artist)
                 {
                     map._artists[parts[1]] = artist;
+                    map._dims = artist.Length;
                 }
-                else if (parts[0] == "t" && parts.Length >= 5 && map.ReadPosition(parts, 4) is { } track &&
-                    int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int listeners) &&
-                    float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float rank))
+                else if (parts[0] == "t" && parts.Length >= 5 &&
+                    int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out int listeners) && listeners >= 0 &&
+                    float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float rank) &&
+                    rank is >= 0f and <= 1f && map.ReadPosition(parts, 4) is { } track)
                 {
-                    map._tracks[parts[1]] = new Track(track, listeners, Math.Clamp(rank, 0f, 1f));
+                    map._tracks[parts[1]] = new Track(track, listeners, rank);
+                    map._dims = track.Length;
                 }
             }
 
@@ -85,17 +95,27 @@ namespace YARG.Core.Song.Recommendations
                         <= 0.4f => "known",
                         _       => "deep cut",
                     }),
-                    new SongFeature(FeatureType.Listeners, track.Listeners switch
-                    {
-                        < 200  => "under 200",
-                        < 1000 => "under 1000",
-                        < 5000 => "under 5000",
-                        _      => "5000 or more",
-                    }),
+                    new SongFeature(FeatureType.Listeners, ListenerBuckets.First(b => track.Listeners < b.Below).Name),
                 });
             }
 
             return (_artists.TryGetValue(artistKey, out var position) ? position : null, Array.Empty<SongFeature>());
+        }
+
+        /// <summary>
+        /// How many people listen to the song, as a rank from 0 (unknown to the map) to 4 (the most listened).
+        /// </summary>
+        public static int PopularityRank(SongFacts song)
+        {
+            foreach (var feature in song.Features)
+            {
+                if (feature.Type == FeatureType.Listeners)
+                {
+                    return Array.FindIndex(ListenerBuckets, b => b.Name == feature.Value) + 1;
+                }
+            }
+
+            return 0;
         }
 
         /// <summary>
@@ -128,11 +148,10 @@ namespace YARG.Core.Song.Recommendations
                 length += (double) values[i] * values[i];
             }
 
-            if (length == 0) return null;
+            double norm = Math.Sqrt(length);
+            if (norm == 0) return null;
 
-            float scale = (float) (1 / Math.Sqrt(length));
-            for (int i = 0; i < dims; i++) values[i] *= scale;
-            _dims = dims;
+            for (int i = 0; i < dims; i++) values[i] = (float) (values[i] / norm);
             return values;
         }
     }

@@ -131,7 +131,11 @@ public class RecommenderTests
         {
             Assert.That(Recommend(Library(), History(), new Random(1)), Is.Empty);
             Assert.That(Recommend(Library(unplayable), History(), new Random(1)), Is.Empty);
-            Assert.That(Recommend(Library(single), History(), new Random(1)).Select(s => s.Song.Key), Is.SubsetOf(new[] { "one" }));
+            Assert.That(Recommend(Library(single), History(), new Random(1)).Select(s => s.Song.Key), Is.EqualTo(new[] { "one" }));
+            Assert.That(Recommender.PickSwipeCards(Library(single), TasteModel.Build(Library(single), History()),
+                new HashSet<string>(), 5, new Random(1)).Select(s => s.Key), Is.EqualTo(new[] { "one" }));
+            Assert.That(Recommender.PickSwipeCards(Library(single), TasteModel.Build(Library(single), History()),
+                new HashSet<string> { "one" }, 5, new Random(1)), Is.Empty);
             Assert.That(Recommender.PickSwipeCards(Library(), TasteModel.Build(Library(), History()), new HashSet<string>(), 5, new Random(1)), Is.Empty);
             Assert.That(Recommender.RankLikelyMistakes(Library(single), History()), Is.Empty);
         }

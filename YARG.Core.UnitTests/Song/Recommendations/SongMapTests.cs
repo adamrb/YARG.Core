@@ -45,6 +45,13 @@ public class SongMapTests
     }
 
     [Test]
+    public void Parse_ARejectedRowDoesNotFixTheLengthOfTheRest()
+    {
+        var map = SongMap.Parse(new[] { "t\tbad|song\tnot-a-number\t0.2\t1", "a\tartist\t3\t4" });
+        Assert.That(map.ArtistCount, Is.EqualTo(1));
+    }
+
+    [Test]
     public void Parse_SkipsNonFiniteValuesAndMismatchedLengthsAndScalesToUnitLength()
     {
         var map = SongMap.Parse(new[]
@@ -55,10 +62,15 @@ public class SongMapTests
             "a\td\t1\t0\t0",
             "a\te\t0\t0",
             "a\tf\t1e30\t1e30",
+            "a\tg\t1e-40\t0",
+            "t\tbad|rank\t10\tNaN\t1\t0",
+            "t\tbad|listeners\t-5\t0.5\t1\t0",
         });
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(map.ArtistCount, Is.EqualTo(2));
+            Assert.That(map.ArtistCount, Is.EqualTo(3));
+            Assert.That(map.TrackCount, Is.Zero);
+            Assert.That(map.Place("g", "x").Position, Is.EqualTo(new[] { 1f, 0f }));
             Assert.That(map.Place("a", "x").Position, Is.EqualTo(new[] { 0.6f, 0.8f }).Within(1e-6f));
             Assert.That(map.Place("f", "x").Position, Is.EqualTo(new[] { 0.70710677f, 0.70710677f }).Within(1e-6f));
         }

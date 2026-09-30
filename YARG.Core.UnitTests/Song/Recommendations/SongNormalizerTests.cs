@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using YARG.Core.Song;
 using YARG.Core.Song.Recommendations;
@@ -36,20 +37,22 @@ public class SongNormalizerTests
         Assert.That(SongNormalizer.Artist(artist), Is.EqualTo(expected));
     }
 
-    // The same cases the song map builder (Tools/SongMap/build_song_map.py in YARG) must agree with:
-    // the game looks artists up by SongNormalizer.Artist of SortString.SearchStr
-    [TestCase("Æther Realm", "aether realm")]
-    [TestCase("Björk", "bjork")]
-    [TestCase("Mötley Crüe", "motley crue")]
-    [TestCase("Sigur Rós", "sigur ros")]
-    [TestCase("Ｙｅｓ", "ｙｅｓ")]
-    [TestCase("Beyoncé (Live)", "beyonce")]
-    [TestCase("AC/DC", "ac dc")]
-    [TestCase("Guns N' Roses", "guns n roses")]
-    [TestCase("Mø", "mø")]
-    public void Artist_OfSearchStringMatchesTheSongMapBuilder(string artist, string expected)
+    private static IEnumerable<TestCaseData> SongKeyCases()
     {
-        Assert.That(SongNormalizer.Artist(new SortString(artist).SearchStr), Is.EqualTo(expected));
+        return File.ReadLines(Path.Combine(Path.GetDirectoryName(ThisFile())!, "song-keys.tsv"))
+            .Where(line => line.Length > 0 && !line.StartsWith("#"))
+            .Select(line => line.Split('\t'))
+            .Select(parts => new TestCaseData(parts[0], parts[1], parts.Length > 2 ? parts[2] : string.Empty));
+    }
+
+    private static string ThisFile([CallerFilePath] string path = "") => path;
+
+    // The song map builder checks itself against the same file, so the game and the map key songs alike
+    [TestCaseSource(nameof(SongKeyCases))]
+    public void Identity_OfSearchStringsMatchesTheSharedSongKeys(string artist, string title, string expected)
+    {
+        Assert.That(SongNormalizer.Identity(new SortString(artist).SearchStr, new SortString(title).SearchStr),
+            Is.EqualTo(expected));
     }
 
     [Test]
@@ -60,6 +63,7 @@ public class SongNormalizerTests
             Assert.That(SongNormalizer.IsAlternateVersion("Trogdor (Late 2006 Retail Demo)"), Is.True);
             Assert.That(SongNormalizer.IsAlternateVersion("Live and Let Die"), Is.False);
             Assert.That(SongNormalizer.IsAlternateVersion("Live and Let Die (Live)"), Is.True);
+            Assert.That(SongNormalizer.IsAlternateVersion("Numb - Live - 2011 Remaster"), Is.True);
         }
     }
 

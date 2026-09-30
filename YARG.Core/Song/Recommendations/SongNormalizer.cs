@@ -33,6 +33,13 @@ namespace YARG.Core.Song.Recommendations
             "may", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec",
         }));
 
+        // What song loaders write when a field is missing; these say nothing about the song
+        private static readonly HashSet<string> Placeholders = new(new[]
+        {
+            SongMetadata.DEFAULT_NAME, SongMetadata.DEFAULT_ARTIST, SongMetadata.DEFAULT_ALBUM,
+            SongMetadata.DEFAULT_CHARTER, SongMetadata.DEFAULT_SOURCE,
+        }.Select(Collapse));
+
         /// <summary>
         /// Lower case, with every run of non-alphanumeric characters turned into a single space.
         /// </summary>
@@ -45,6 +52,15 @@ namespace YARG.Core.Song.Recommendations
 
             var chars = text!.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : ' ').ToArray();
             return string.Join(" ", new string(chars).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        /// <summary>
+        /// <see cref="Collapse"/>, but empty for placeholders such as "Unknown Artist".
+        /// </summary>
+        private static string Known(string? text)
+        {
+            string collapsed = Collapse(text);
+            return Placeholders.Contains(collapsed) ? string.Empty : collapsed;
         }
 
         public static string StripBrackets(string? text)
@@ -60,7 +76,7 @@ namespace YARG.Core.Song.Recommendations
         /// </summary>
         public static string Artist(string? artist)
         {
-            var words = Collapse(StripBrackets(artist)).Split(' ').Where(word => word != "and").ToList();
+            var words = Known(StripBrackets(artist)).Split(' ').Where(word => word != "and").ToList();
             if (words.Count > 1 && words[0] == "the")
             {
                 words.RemoveAt(0);
@@ -76,28 +92,32 @@ namespace YARG.Core.Song.Recommendations
         public static string Title(string? title)
         {
             var result = new StringBuilder();
-            ForEachBracketGroup(WithoutDashNote(title), result, (group, output) =>
+            ForEachBracketGroup(SplitDashNotes(title).Name, result, (group, output) =>
             {
                 if (!IsVersionNote(group))
                 {
                     output.Append(' ').Append(group).Append(' ');
                 }
             });
-            return Collapse(result.ToString());
+            return Known(result.ToString());
         }
 
         /// <summary>
-        /// One string shared by every chart of the same song, such as a Harmonix and a Neversoft chart.
+        /// One string shared by every chart of the same song, such as a Harmonix and a Neversoft chart, or
+        /// empty when the artist or title is missing (the song then stands alone, see <see cref="SongFacts.Identity"/>).
         /// </summary>
-        public static string Identity(string? artist, string? title) => Artist(artist) + "|" + Title(title);
+        public static string Identity(string? artist, string? title)
+        {
+            string artistKey = Artist(artist), titleKey = Title(title);
+            return artistKey.Length > 0 && titleKey.Length > 0 ? artistKey + "|" + titleKey : string.Empty;
+        }
 
         /// <summary>
         /// True when the title marks this chart as a demo, prototype, live take or similar.
         /// </summary>
         public static bool IsAlternateVersion(string? title)
         {
-            string? note = DashNote(title);
-            if (note != null && Collapse(note).Split(' ').Any(AlternateVersionWords.Contains))
+            if (SplitDashNotes(title).Notes.Any(note => Collapse(note).Split(' ').Any(AlternateVersionWords.Contains)))
             {
                 return true;
             }
@@ -133,8 +153,8 @@ namespace YARG.Core.Song.Recommendations
                 Add(FeatureType.GenreWord, word);
             }
 
-            Add(FeatureType.Charter, Collapse(charter));
-            Add(FeatureType.Source, Collapse(source));
+            Add(FeatureType.Charter, Known(charter));
+            Add(FeatureType.Source, Known(source));
             if (year > 0 && year < 3000)
             {
                 Add(FeatureType.Decade, (year / 10 * 10).ToString());
@@ -174,17 +194,23 @@ namespace YARG.Core.Song.Recommendations
             }
         }
 
-        // Streaming services write version notes after a dash: "Song - 2011 Remaster", "Song - Live"
-        private static string? DashNote(string? title)
+        /// <summary>
+        /// Splits off the version notes streaming services write after dashes: "Song - Live - 2011 Remaster"
+        /// is "Song" with notes "2011 Remaster" and "Live". Dashes that are part of the name stay.
+        /// </summary>
+        private static (string Name, List<string> Notes) SplitDashNotes(string? title)
         {
-            int dash = title?.LastIndexOf(" - ", StringComparison.Ordinal) ?? -1;
-            return dash > 0 && IsVersionNote(title!.Substring(dash + 3)) ? title.Substring(dash + 3) : null;
-        }
+            string name = title ?? string.Empty;
+            var notes = new List<string>();
+            for (int dash = name.LastIndexOf(" - ", StringComparison.Ordinal);
+                dash > 0 && IsVersionNote(name.Substring(dash + 3));
+                dash = name.LastIndexOf(" - ", StringComparison.Ordinal))
+            {
+                notes.Add(name.Substring(dash + 3));
+                name = name.Substring(0, dash);
+            }
 
-        private static string? WithoutDashNote(string? title)
-        {
-            string? note = DashNote(title);
-            return note == null ? title : title!.Substring(0, title.Length - note.Length - 3);
+            return (name, notes);
         }
 
         private static bool IsVersionNote(string text)

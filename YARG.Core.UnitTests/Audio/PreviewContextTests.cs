@@ -243,19 +243,18 @@ public class PreviewContextTests
     }
 
     [Test]
-    public async Task Create_LevelsOnALaterLoopWhenThePreviewStartsSilent()
+    public async Task Create_LevelsFromTheAudiblePartWhenThePreviewStartsSilent()
     {
         using var cancellationTokenSource = new CancellationTokenSource();
         var manager = new FakeAudioManager();
-        var mixer = new FakeStemMixer(manager, length: 0.8) { Level = 0f };
+        // Every play starts with 0.8 s of silence, as a clip with a quiet intro would
+        var mixer = new FakeStemMixer(manager, length: 2) { Level = 0.25f, SilentAfterSeek = 0.8 };
         var entry = new TestPreviewSongEntry(() => mixer);
         float measured = 0f;
 
         using var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0,
             fadeDuration: 0, false, cancellationTokenSource.Token, levelVolume: rms => { measured = rms; return 0.4f; });
-        await Task.Delay(900);
-        mixer.Level = 0.25f;
-        await Task.Delay(900);
+        await Task.Delay(1800);
 
         Assert.That(measured, Is.EqualTo(0.25f).Within(1e-6));
     }
@@ -333,6 +332,11 @@ public class PreviewContextTests
         /// <summary>The RMS level reported to the preview, as if measured before the volume control.</summary>
         public float Level { get; set; }
 
+        /// <summary>Seconds after each seek during which the level reads as silence.</summary>
+        public double SilentAfterSeek { get; set; }
+
+        private readonly System.Diagnostics.Stopwatch _sinceSeek = System.Diagnostics.Stopwatch.StartNew();
+
         public double LastFadeInVolume { get; private set; }
 
         public override event Action SongEnd
@@ -370,7 +374,7 @@ public class PreviewContextTests
 
         protected override double GetVolume_Internal() => 1;
 
-        protected override void SetPosition_Internal(double position) { }
+        protected override void SetPosition_Internal(double position) => _sinceSeek.Restart();
 
         protected override void SetVolume_Internal(double volume) { }
 
@@ -380,7 +384,7 @@ public class PreviewContextTests
 
         protected override int GetLevel_Internal(float[] level)
         {
-            level[0] = Level;
+            level[0] = _sinceSeek.Elapsed.TotalSeconds < SilentAfterSeek ? 0f : Level;
             return 0;
         }
 
