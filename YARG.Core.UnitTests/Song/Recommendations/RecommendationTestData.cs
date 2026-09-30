@@ -10,7 +10,7 @@ internal static class RecommendationTestData
     public static readonly DateTime Now = new(2026, 9, 29, 20, 0, 0);
 
     public static SongFacts MakeSong(string key, string artist, string genre, int year = 2000, int tier = 2,
-        int difficulty = 4, string? title = null)
+        Difficulty difficulty = Difficulty.Expert, string? title = null)
     {
         return new SongFacts
         {
@@ -23,6 +23,10 @@ internal static class RecommendationTestData
 
     public static Dictionary<string, SongFacts> Library(params SongFacts[] songs) => songs.ToDictionary(s => s.Key);
 
+    public static List<RecommendedSong> Recommend(Dictionary<string, SongFacts> library, ProfileHistory history,
+        Random random, ISet<string>? skip = null) =>
+        Recommender.Recommend(library, history, TasteModel.Build(library, history), SkillModel.Fit(history), random, skip);
+
     public static PlayFact Play(SongFacts song, int daysAgo, float accuracy, float speed = 1f) => new()
     {
         Key = song.Key,
@@ -31,7 +35,9 @@ internal static class RecommendationTestData
         OnCurrentInstrument = true,
         OnCurrentDifficulty = true,
         SongSpeed = speed,
-        ChartDifficulty = song.ChartDifficulty,
+        // The same shift a real play at this speed gets
+        ChartDifficulty = song.ChartDifficulty +
+            (SkillModel.ChartDifficulty(0, Difficulty.Expert, speed) - SkillModel.ChartDifficulty(0, Difficulty.Expert)),
     };
 
     public static FeedbackFact Swipe(SongFacts song, bool liked, int minutes = 0) => new()

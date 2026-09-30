@@ -96,8 +96,10 @@ namespace YARG.Core.Song.Recommendations
         /// </summary>
         public static bool IsAlternateVersion(string? title)
         {
-            var bracketed = Collapse(title).Split(' ').Except(Collapse(StripBrackets(title)).Split(' '));
-            return bracketed.Any(AlternateVersionWords.Contains);
+            bool alternate = false;
+            ForEachBracketGroup(title, new StringBuilder(), (group, _) =>
+                alternate |= Collapse(group).Split(' ').Any(AlternateVersionWords.Contains));
+            return alternate;
         }
 
         public static SongFeature[] Features(string? artist, string? genre, string? subgenre, string? charter,

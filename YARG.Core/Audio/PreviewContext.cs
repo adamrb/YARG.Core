@@ -161,7 +161,7 @@ namespace YARG.Core.Audio
                     if (_levelVolume != null && !_leveled)
                     {
                         _leveled = true;
-                        await LevelOnce();
+                        await LevelOnce(watch);
                     }
 
                     while (watch.Elapsed.TotalSeconds < _previewLength - _fadeDuration && !_token.IsCancellationRequested)
@@ -197,27 +197,34 @@ namespace YARG.Core.Audio
             catch (Exception ex)
             {
                 YargLogger.LogException(ex, "Error while looping song preview!");
+                // Nothing else will stop the audio once the loop is gone
+                Dispose();
             }
         }
 
-        private const int LEVEL_MEASURE_MILLISECONDS = 500;
+        private const double LEVEL_MEASURE_SECONDS = 0.5;
         private const int LEVEL_SAMPLE_MILLISECONDS = 50;
 
         /// <summary>
         /// Listens to the start of the first play and hands the clip's average RMS level (measured before
         /// the volume control) to the leveling function, which returns the volume to use from then on.
+        /// Stops early for clips shorter than the measurement, and does nothing once the preview is canceled.
         /// </summary>
-        private async Task LevelOnce()
+        private async Task LevelOnce(Stopwatch playTime)
         {
-            var levelVolume = _levelVolume!;
+            double limit = Math.Min(LEVEL_MEASURE_SECONDS, _previewLength - _fadeDuration);
             var level = new float[1];
             float sum = 0f;
             int samples = 0;
-            for (int elapsed = 0; elapsed < LEVEL_MEASURE_MILLISECONDS && !_disposed && !_token.IsCancellationRequested;
-                elapsed += LEVEL_SAMPLE_MILLISECONDS)
+            while (playTime.Elapsed.TotalSeconds + LEVEL_SAMPLE_MILLISECONDS / 1000.0 <= limit)
             {
                 // ReSharper disable once MethodSupportsCancellation
                 await Task.Delay(LEVEL_SAMPLE_MILLISECONDS);
+                if (_disposed || _token.IsCancellationRequested)
+                {
+                    return;
+                }
+
                 if (_mixer.GetLevel(level) == 0 && level[0] > 0.001f)
                 {
                     sum += level[0];
@@ -225,11 +232,23 @@ namespace YARG.Core.Audio
                 }
             }
 
-            if (samples > 0 && !_disposed)
+            if (samples == 0)
             {
-                _volume = levelVolume(sum / samples);
-                _mixer.FadeIn(_volume, _fadeDuration);
+                return;
             }
+
+            try
+            {
+                _volume = _levelVolume!(sum / samples);
+            }
+            catch (Exception ex)
+            {
+                // Keep playing at the original volume
+                YargLogger.LogException(ex, "Error while leveling song preview!");
+                return;
+            }
+
+            _mixer.FadeIn(_volume, _fadeDuration);
         }
 
         private void Dispose(bool disposing)

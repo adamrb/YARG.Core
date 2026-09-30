@@ -32,7 +32,8 @@ public class SkillModelTests
     [Test]
     public void ChartDifficulty_SlowerPlaysAreEasier()
     {
-        Assert.That(SkillModel.ChartDifficulty(4, 4, 0.5f), Is.LessThan(SkillModel.ChartDifficulty(4, 4)));
+        Assert.That(SkillModel.ChartDifficulty(4, Difficulty.Expert, 0.5f),
+            Is.LessThan(SkillModel.ChartDifficulty(4, Difficulty.Expert)));
     }
 
     [Test]
@@ -46,17 +47,17 @@ public class SkillModelTests
     }
 
     [Test]
-    public void PredictSong_IgnoresSpedUpResultsForTheSongsOwnPrediction()
+    public void PredictSong_SpedUpResultsInformTheFitButNotTheSongsOwnPrediction()
     {
         var song = MakeSong("s", "A", "Rock", tier: 2);
         var easy = MakeSong("easy", "B", "Rock", tier: 1);
         var mid = MakeSong("mid", "B", "Rock", tier: 3);
-        var skill = SkillModel.Fit(History(new[]
-        {
-            Play(easy, 3, 0.99f), Play(mid, 2, 0.92f), Play(song, 1, 0.55f, speed: 1.5f),
-        }));
+        var anchors = new[] { Play(easy, 3, 0.99f), Play(mid, 2, 0.92f) };
+        var withoutSpedUp = SkillModel.Fit(History(anchors));
+        var skill = SkillModel.Fit(History(anchors.Append(Play(song, 1, 0.55f, speed: 1.5f))));
         using (Assert.EnterMultipleScope())
         {
+            Assert.That(skill.Skill, Is.LessThan(withoutSpedUp.Skill), "the struggle at 150% counts in the fit");
             Assert.That(skill.BestAccuracy("s"), Is.Null);
             Assert.That(skill.PredictSong(song), Is.GreaterThan(0.85f));
         }

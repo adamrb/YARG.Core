@@ -47,6 +47,12 @@ namespace YARG.Core.Song.Recommendations
         public string? Artist => First(FeatureType.Artist);
         public string? Genre => First(FeatureType.Genre);
 
+        /// <summary>
+        /// The <see cref="Identity"/> of the song with this key, or the key itself if it is not in the library.
+        /// </summary>
+        public static string IdentityOf(IReadOnlyDictionary<string, SongFacts> library, string key) =>
+            library.TryGetValue(key, out var song) ? song.Identity : key;
+
         private string? First(FeatureType type)
         {
             foreach (var feature in Features)
@@ -113,30 +119,33 @@ namespace YARG.Core.Song.Recommendations
         public IReadOnlyList<QuitFact> Quits = Array.Empty<QuitFact>();
         public IReadOnlyCollection<string> Favorites = Array.Empty<string>();
 
-        /// <summary>
-        /// The profile's current difficulty, as <c>(int) Difficulty</c>.
-        /// </summary>
-        public int CurrentDifficulty = 4;
+        public Difficulty CurrentDifficulty = Difficulty.Expert;
 
         public DateTime Now = DateTime.Now;
 
         /// <summary>
-        /// The latest swipe on each song; a later swipe replaces an earlier one.
+        /// The latest swipe on each song, counting every chart of a song as one song: a later swipe on any
+        /// chart replaces an earlier one.
         /// </summary>
-        public IEnumerable<FeedbackFact> LatestFeedback() =>
-            Feedback.GroupBy(f => f.Key).Select(g => g.OrderBy(f => f.Date).Last());
+        public IEnumerable<FeedbackFact> LatestFeedback(IReadOnlyDictionary<string, SongFacts> library) =>
+            Feedback.GroupBy(f => SongFacts.IdentityOf(library, f.Key)).Select(g => g.OrderBy(f => f.Date).Last());
 
         /// <summary>
-        /// A copy without the swipes on the given songs, for judging those swipes by everything else.
+        /// A copy without the swipes on the given songs (on any of their charts), for judging those swipes
+        /// by everything else.
         /// </summary>
-        public ProfileHistory WithoutFeedbackOn(ISet<string> keys) => new()
+        public ProfileHistory WithoutFeedbackOn(IReadOnlyDictionary<string, SongFacts> library, ISet<string> keys)
         {
-            Plays = Plays,
-            Feedback = Feedback.Where(f => !keys.Contains(f.Key)).ToList(),
-            Quits = Quits,
-            Favorites = Favorites,
-            CurrentDifficulty = CurrentDifficulty,
-            Now = Now,
-        };
+            var songs = new HashSet<string>(keys.Select(key => SongFacts.IdentityOf(library, key)));
+            return new ProfileHistory
+            {
+                Plays = Plays,
+                Feedback = Feedback.Where(f => !songs.Contains(SongFacts.IdentityOf(library, f.Key))).ToList(),
+                Quits = Quits,
+                Favorites = Favorites,
+                CurrentDifficulty = CurrentDifficulty,
+                Now = Now,
+            };
+        }
     }
 }

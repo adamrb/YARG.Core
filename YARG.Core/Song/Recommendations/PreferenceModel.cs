@@ -10,8 +10,8 @@ namespace YARG.Core.Song.Recommendations
     /// <see cref="ArtistMap"/>. Nothing is hand-weighted; the data decides what matters for the player.
     /// </summary>
     /// <remarks>
-    /// Positives are songs with evidence above the baseline, negatives those below it, each weighted by the
-    /// distance from the baseline. A stable sample of untouched songs is added as weak negatives, the usual
+    /// Songs with positive evidence are positives and those with negative evidence negatives, each weighted
+    /// by the size of the evidence. A stable sample of untouched songs is added as weak negatives, the usual
     /// approach to implicit feedback: in a big library a random song is more likely than not one the player
     /// would skip.
     /// </remarks>
@@ -21,9 +21,10 @@ namespace YARG.Core.Song.Recommendations
         private const float IMPLICIT_NEGATIVE_WEIGHT = 0.2f;
         private const int IMPLICIT_NEGATIVES_PER_POSITIVE = 4;
         private const int MIN_IMPLICIT_NEGATIVES = 100;
+        private const int MAX_IMPLICIT_NEGATIVES = 1000;
         private const float L2 = 1f;
         private const float LEARNING_RATE = 0.5f;
-        private const int ITERATIONS = 300;
+        private const int ITERATIONS = 150;
 
         // Map positions have unit length; scaling them lets one L2 penalty suit both kinds of input
         private const float POSITION_SCALE = 4f;
@@ -55,8 +56,13 @@ namespace YARG.Core.Song.Recommendations
         }
 
         public static PreferenceModel Train(IReadOnlyDictionary<string, SongFacts> library,
-            IReadOnlyDictionary<string, float> evidence, float baseline, ISet<string>? heldOut = null)
+            IReadOnlyDictionary<string, float> evidence, ISet<string>? heldOut = null)
         {
+            if (!evidence.Keys.Any(library.ContainsKey))
+            {
+                return Empty;
+            }
+
             var model = new PreferenceModel();
             var rows = new List<(int[] Features, float[]? Position, float Label, float Weight)>();
             int dims = library.Values.FirstOrDefault(s => s.ArtistPosition != null)?.ArtistPosition!.Length ?? 0;
@@ -83,16 +89,15 @@ namespace YARG.Core.Song.Recommendations
             int positives = 0;
             foreach (var (key, value) in evidence)
             {
-                float relative = value - baseline;
-                if (relative == 0f || !library.TryGetValue(key, out var song)) continue;
-                if (relative > 0f) positives++;
-                rows.Add((Encode(song), PositionOf(song), relative > 0f ? 1f : 0f, Math.Min(Math.Abs(relative), MAX_EXAMPLE_WEIGHT)));
+                if (value == 0f || !library.TryGetValue(key, out var song)) continue;
+                if (value > 0f) positives++;
+                rows.Add((Encode(song), PositionOf(song), value > 0f ? 1f : 0f, Math.Min(Math.Abs(value), MAX_EXAMPLE_WEIGHT)));
             }
 
             // Every chart of a song with evidence (or held out) stays out of the implicit negatives
             var touched = new HashSet<string>(evidence.Keys.Concat(heldOut ?? Enumerable.Empty<string>())
-                .Select(key => library.TryGetValue(key, out var song) ? song.Identity : key));
-            int negatives = Math.Max(MIN_IMPLICIT_NEGATIVES, positives * IMPLICIT_NEGATIVES_PER_POSITIVE);
+                .Select(key => SongFacts.IdentityOf(library, key)));
+            int negatives = Math.Clamp(positives * IMPLICIT_NEGATIVES_PER_POSITIVE, MIN_IMPLICIT_NEGATIVES, MAX_IMPLICIT_NEGATIVES);
             foreach (var song in library.Values
                 .Where(s => s.Canonical && !touched.Contains(s.Identity))
                 .OrderBy(s => StableHash(s.Key))

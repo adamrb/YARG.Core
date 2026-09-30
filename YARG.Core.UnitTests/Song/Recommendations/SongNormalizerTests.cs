@@ -1,4 +1,5 @@
 using NUnit.Framework;
+using YARG.Core.Song;
 using YARG.Core.Song.Recommendations;
 
 namespace YARG.Core.UnitTests.Song.Recommendations;
@@ -32,6 +33,22 @@ public class SongNormalizerTests
         Assert.That(SongNormalizer.Artist(artist), Is.EqualTo(expected));
     }
 
+    // The same cases the artist map builder (Tools/ArtistMap/build_artist_map.py in YARG) must agree with:
+    // the game looks artists up by SongNormalizer.Artist of SortString.SearchStr
+    [TestCase("Æther Realm", "aether realm")]
+    [TestCase("Björk", "bjork")]
+    [TestCase("Mötley Crüe", "motley crue")]
+    [TestCase("Sigur Rós", "sigur ros")]
+    [TestCase("Ｙｅｓ", "ｙｅｓ")]
+    [TestCase("Beyoncé (Live)", "beyonce")]
+    [TestCase("AC/DC", "ac dc")]
+    [TestCase("Guns N' Roses", "guns n roses")]
+    [TestCase("Mø", "mø")]
+    public void Artist_OfSearchStringMatchesTheArtistMapBuilder(string artist, string expected)
+    {
+        Assert.That(SongNormalizer.Artist(new SortString(artist).SearchStr), Is.EqualTo(expected));
+    }
+
     [Test]
     public void IsAlternateVersion_SpotsDemosButNotSongNames()
     {
@@ -39,6 +56,7 @@ public class SongNormalizerTests
         {
             Assert.That(SongNormalizer.IsAlternateVersion("Trogdor (Late 2006 Retail Demo)"), Is.True);
             Assert.That(SongNormalizer.IsAlternateVersion("Live and Let Die"), Is.False);
+            Assert.That(SongNormalizer.IsAlternateVersion("Live and Let Die (Live)"), Is.True);
         }
     }
 

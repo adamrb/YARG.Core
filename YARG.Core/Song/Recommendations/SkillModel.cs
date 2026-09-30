@@ -27,10 +27,8 @@ namespace YARG.Core.Song.Recommendations
         private readonly Dictionary<string, float> _bestAccuracy = new();
 
         public float Skill { get; private set; }
-        public int PlayCount { get; private set; }
 
-        /// <param name="difficulty">A <c>(int) Difficulty</c>: Beginner 0 through ExpertPlus 5.</param>
-        public static float ChartDifficulty(int intensity, int difficulty, float songSpeed = 1f)
+        public static float ChartDifficulty(int intensity, Difficulty difficulty, float songSpeed = 1f)
         {
             float tier = intensity < 0 ? UNKNOWN_INTENSITY : intensity;
             float speed = songSpeed > 0f ? songSpeed : 1f;
@@ -49,7 +47,6 @@ namespace YARG.Core.Song.Recommendations
                 .Where(p => p.OnCurrentInstrument && p.ChartDifficulty.HasValue)
                 .OrderBy(p => p.Date)
                 .ToList();
-            model.PlayCount = plays.Count;
 
             // A result is reused as the song's own prediction only if it was played at normal speed;
             // other speeds still inform the fit through their speed-adjusted difficulty
@@ -105,14 +102,14 @@ namespace YARG.Core.Song.Recommendations
 
         public float? BestAccuracy(string key) => _bestAccuracy.TryGetValue(key, out float best) ? best : null;
 
-        private static float DifficultyOffset(int difficulty) => difficulty switch
+        private static float DifficultyOffset(Difficulty difficulty) => difficulty switch
         {
-            0 => -6f,
-            1 => -4.5f,
-            2 => -3f,
-            3 => -1.5f,
-            5 => 0.5f,
-            _ => 0f,
+            Difficulty.Beginner   => -6f,
+            Difficulty.Easy       => -4.5f,
+            Difficulty.Medium     => -3f,
+            Difficulty.Hard       => -1.5f,
+            Difficulty.ExpertPlus => 0.5f,
+            _                     => 0f,
         };
     }
 }

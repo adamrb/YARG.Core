@@ -60,6 +60,42 @@ public class TasteModelTests
     }
 
     [Test]
+    public void Evidence_SwipesKeepTheirSignWhateverElseTheHistoryHolds()
+    {
+        var quitter = MakeSong("quit", "A", "Pop");
+        var passed = MakeSong("passed", "B", "Pop");
+        var loved = MakeSong("loved", "C", "Rock");
+        var liked = MakeSong("liked", "D", "Rock");
+        var library = Library(quitter, passed, loved, liked);
+        var quits = Enumerable.Range(0, 10).Select(_ => new QuitFact { Key = "quit", Progress = 0.1f, Date = Now });
+        var manyQuits = TasteModel.Build(library, History(quits: quits, feedback: new[] { Swipe(passed, false) }));
+        var manyReturns = TasteModel.Build(library, History(
+            Enumerable.Range(0, 5).Select(day => Play(loved, day + 1, 0.9f)), new[] { Swipe(liked, true) }));
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(manyQuits.Evidence["passed"], Is.LessThan(0));
+            Assert.That(manyReturns.Evidence["liked"], Is.GreaterThan(0));
+        }
+    }
+
+    [Test]
+    public void Evidence_EveryChartOfASongCountsAsOneSong()
+    {
+        var harmonix = MakeSong("hmx", "A", "Rock", title: "Song");
+        var neversoft = MakeSong("ns", "A", "Rock", title: "Song");
+        neversoft.Canonical = false;
+        var library = Library(harmonix, neversoft);
+        var passThenLike = TasteModel.Build(library, History(feedback: new[] { Swipe(harmonix, false, -10), Swipe(neversoft, true) }));
+        var passThenPlay = TasteModel.Build(library, History(new[] { Play(neversoft, 1, 0.9f) }, new[] { Swipe(harmonix, false, -9000) }));
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(passThenLike.Evidence.Keys, Is.EqualTo(new[] { "hmx" }));
+            Assert.That(passThenLike.Evidence["hmx"], Is.GreaterThan(0), "the later like on the other chart wins");
+            Assert.That(passThenPlay.Evidence["hmx"], Is.GreaterThan(0), "playing any chart ends the pass");
+        }
+    }
+
+    [Test]
     public void Score_GeneralizesThroughSharedFeatures()
     {
         var liked = MakeSong("liked", "B", "Pop");

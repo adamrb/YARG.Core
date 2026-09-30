@@ -8,11 +8,13 @@ namespace YARG.Core.Song.Recommendations
     /// What a profile enjoys, learned from how it has actually behaved.
     /// </summary>
     /// <remarks>
-    /// Every song the profile has touched gets an enjoyment "evidence" number. Coming back to a song on
-    /// another day is the strongest signal, especially after a poor score. Finishing a song once is a weak
-    /// signal, and a low score never counts against a song (that is the <see cref="SkillModel"/>'s job).
-    /// Favorites count strongly; a swipe counts only until the song is actually played; an early quit
-    /// counts against. A <see cref="PreferenceModel"/> is then trained on that evidence.
+    /// Every song the profile has touched gets an enjoyment "evidence" number: positive for a like,
+    /// negative for a dislike. Coming back to a song on another day is the strongest signal, especially
+    /// after a poor score, and play history is judged against the profile's typical play, so a song played
+    /// once ranks below the ones it keeps returning to. A low score never counts against a song (that is
+    /// the <see cref="SkillModel"/>'s job). Favorites, swipes and quits keep their own sign; a swipe counts
+    /// only until the song is actually played. All charts of a song count as one song. A
+    /// <see cref="PreferenceModel"/> is then trained on that evidence.
     /// </remarks>
     public sealed class TasteModel
     {
@@ -28,8 +30,7 @@ namespace YARG.Core.Song.Recommendations
         private const float LATE_QUIT = -0.2f;
         private const double RECENCY_HALF_LIFE_DAYS = 90;
 
-        // Evidence above this share of the profile's average counts as a like when training, so a song
-        // played once and never revisited ranks below the songs the profile keeps returning to
+        // Play evidence above this share of the profile's average play counts as a like
         private const float BASELINE_SHARE = 0.5f;
 
         private readonly Dictionary<string, float> _evidence = new();
@@ -37,22 +38,24 @@ namespace YARG.Core.Song.Recommendations
         private PreferenceModel _preferences = PreferenceModel.Empty;
 
         /// <summary>
-        /// Enjoyment evidence per song key, for songs the profile has touched.
+        /// Enjoyment evidence for the songs the profile has touched, positive for a like, keyed by one chart
+        /// of each song (the canonical one when the song is in the library).
         /// </summary>
         public IReadOnlyDictionary<string, float> Evidence => _evidence;
-
-        public PreferenceModel Preferences => _preferences;
 
         /// <param name="heldOut">Songs to leave out of the weak-negative sample (for cross-validation).</param>
         public static TasteModel Build(IReadOnlyDictionary<string, SongFacts> library, ProfileHistory history,
             ISet<string>? heldOut = null)
         {
             var model = new TasteModel();
-            var played = new HashSet<string>();
+            var canonical = library.Values.Where(s => s.Canonical).GroupBy(s => s.Identity)
+                .ToDictionary(g => g.Key, g => g.First().Key);
+            string SongKey(string key) =>
+                canonical.TryGetValue(SongFacts.IdentityOf(library, key), out string song) ? song : key;
 
-            foreach (var songPlays in history.Plays.GroupBy(p => p.Key))
+            var played = new Dictionary<string, float>();
+            foreach (var songPlays in history.Plays.GroupBy(p => SongKey(p.Key)))
             {
-                played.Add(songPlays.Key);
                 var days = songPlays
                     .GroupBy(p => p.Date.Date)
                     .OrderBy(g => g.Key)
@@ -67,27 +70,35 @@ namespace YARG.Core.Song.Recommendations
                 }
 
                 double age = Math.Max(0, (history.Now - songPlays.Max(p => p.Date)).TotalDays);
-                evidence *= (float) (0.5 + 0.5 * Math.Pow(0.5, age / RECENCY_HALF_LIFE_DAYS));
-                model.Add(songPlays.Key, evidence);
+                played[songPlays.Key] = evidence * (float) (0.5 + 0.5 * Math.Pow(0.5, age / RECENCY_HALF_LIFE_DAYS));
+            }
+
+            float baseline = played.Count > 0 ? BASELINE_SHARE * played.Values.Average() : 0f;
+            foreach (var (key, evidence) in played)
+            {
+                model.Add(key, evidence - baseline);
             }
 
             foreach (var quit in history.Quits)
             {
-                model.Add(quit.Key, quit.Progress < 0.5f ? EARLY_QUIT : LATE_QUIT);
+                model.Add(SongKey(quit.Key), quit.Progress < 0.5f ? EARLY_QUIT : LATE_QUIT);
             }
 
             foreach (string key in history.Favorites)
             {
-                model.Add(key, FAVORITE);
+                model.Add(SongKey(key), FAVORITE);
             }
 
-            foreach (var swipe in history.LatestFeedback().Where(f => !played.Contains(f.Key)))
+            foreach (var swipe in history.LatestFeedback(library))
             {
-                model.Add(swipe.Key, swipe.Liked ? SWIPE_LIKE : SWIPE_PASS);
+                string key = SongKey(swipe.Key);
+                if (!played.ContainsKey(key))
+                {
+                    model.Add(key, swipe.Liked ? SWIPE_LIKE : SWIPE_PASS);
+                }
             }
 
-            var known = model._evidence.Where(e => library.ContainsKey(e.Key)).ToList();
-            foreach (var (key, _) in known)
+            foreach (string key in model._evidence.Keys.Where(library.ContainsKey))
             {
                 foreach (var feature in library[key].Features)
                 {
@@ -96,12 +107,7 @@ namespace YARG.Core.Song.Recommendations
                 }
             }
 
-            if (known.Count > 0)
-            {
-                float baseline = BASELINE_SHARE * known.Average(e => e.Value);
-                model._preferences = PreferenceModel.Train(library, model._evidence, baseline, heldOut);
-            }
-
+            model._preferences = PreferenceModel.Train(library, model._evidence, heldOut);
             return model;
         }
 

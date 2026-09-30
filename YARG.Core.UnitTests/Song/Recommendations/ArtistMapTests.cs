@@ -23,4 +23,22 @@ public class ArtistMapTests
             Assert.That(ArtistMap.Similarity(map.Find("bjork"), new[] { 1f, 0f }), Is.EqualTo(1f));
         }
     }
+
+    [Test]
+    public void Parse_SkipsNonFiniteValuesAndMismatchedLengthsAndScalesToUnitLength()
+    {
+        var map = ArtistMap.Parse(new[]
+        {
+            "a\t3\t4",
+            "b\tNaN\t1",
+            "c\tInfinity\t1",
+            "d\t1\t0\t0",
+            "e\t0\t0",
+        });
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(map.Count, Is.EqualTo(1));
+            Assert.That(map.Find("a"), Is.EqualTo(new[] { 0.6f, 0.8f }).Within(1e-6f));
+        }
+    }
 }

@@ -20,13 +20,6 @@ namespace YARG.Core.Song.Recommendations
         public float PredictedAccuracy;
     }
 
-    public sealed class RecommendationResult
-    {
-        public TasteModel Taste = null!;
-        public SkillModel Skill = null!;
-        public List<RecommendedSong> Songs = new();
-    }
-
     /// <summary>
     /// Builds the recommendation rows, picks Song Swipe cards, and finds likely mistaken swipes.
     /// </summary>
@@ -36,7 +29,7 @@ namespace YARG.Core.Song.Recommendations
         public const float STRETCH = 0.85f;
         public const float CHALLENGE = 0.65f;
 
-        public static readonly IReadOnlyDictionary<RecommendationKind, int> RowSizes =
+        private static readonly IReadOnlyDictionary<RecommendationKind, int> RowSizes =
             new Dictionary<RecommendationKind, int>
             {
                 { RecommendationKind.ForYou, 8 },
@@ -59,23 +52,25 @@ namespace YARG.Core.Song.Recommendations
         private const double SWIPE_NOISE = 0.25;
         private const int MISTAKE_FOLDS = 5;
 
+        /// <summary>
+        /// Picks the recommendation rows. The models are passed in so a caller can reuse them when only
+        /// the random picks change, as on a refresh.
+        /// </summary>
         /// <param name="skip">Song keys to leave out, for example the ones shown before a refresh.</param>
-        public static RecommendationResult Recommend(IReadOnlyDictionary<string, SongFacts> library,
-            ProfileHistory history, Random random, ISet<string>? skip = null)
+        public static List<RecommendedSong> Recommend(IReadOnlyDictionary<string, SongFacts> library,
+            ProfileHistory history, TasteModel taste, SkillModel skill, Random random, ISet<string>? skip = null)
         {
-            var taste = TasteModel.Build(library, history);
-            var skill = SkillModel.Fit(history);
-            string IdOf(string key) => library.TryGetValue(key, out var facts) ? facts.Identity : key;
+            string IdOf(string key) => SongFacts.IdentityOf(library, key);
 
             // Plays and passes apply to every chart of a song. A pass hides a song only until it is played.
             var played = new HashSet<string>(history.Plays.Select(p => IdOf(p.Key)));
             var recent = new HashSet<string>(history.Plays
                 .Where(p => (history.Now - p.Date).TotalDays < RECENTLY_PLAYED_DAYS)
                 .Select(p => IdOf(p.Key)));
-            var passed = new HashSet<string>(history.Feedback
-                .GroupBy(f => IdOf(f.Key))
-                .Where(g => !g.OrderBy(f => f.Date).Last().Liked && !played.Contains(g.Key))
-                .Select(g => g.Key));
+            var passed = new HashSet<string>(history.LatestFeedback(library)
+                .Where(f => !f.Liked)
+                .Select(f => IdOf(f.Key))
+                .Where(id => !played.Contains(id)));
 
             // A little randomness keeps lists fresh. Discovery adds a larger bonus scaled by how unsure the
             // model is, for one exploratory For You slot.
@@ -92,7 +87,7 @@ namespace YARG.Core.Song.Recommendations
                 .OrderByDescending(s => s.Taste)
                 .ToList();
 
-            var result = new RecommendationResult { Taste = taste, Skill = skill };
+            var result = new List<RecommendedSong>();
             var variety = new VarietyRules(ARTIST_PER_ROW, ARTIST_TOTAL, GENRE_PER_ROW, GENRE_TOTAL);
 
             void Take(RecommendationKind kind, IEnumerable<RecommendedSong> ordered, int count)
@@ -103,12 +98,12 @@ namespace YARG.Core.Song.Recommendations
                     if (!variety.TryAdd(song.Song, (int) kind)) continue;
 
                     song.Kind = kind;
-                    result.Songs.Add(song);
+                    result.Add(song);
                     count--;
                 }
             }
 
-            int RemainingIn(RecommendationKind kind) => RowSizes[kind] - result.Songs.Count(s => s.Kind == kind);
+            int RemainingIn(RecommendationKind kind) => RowSizes[kind] - result.Count(s => s.Kind == kind);
 
             // For You: one known favorite, the best matches not played yet, and one discovery
             var forYou = candidates.Where(s => s.PredictedAccuracy >= STRETCH).ToList();
@@ -126,17 +121,16 @@ namespace YARG.Core.Song.Recommendations
                     s.PredictedAccuracy >= STRETCH && s.PredictedAccuracy < AT_LEVEL &&
                     (skill.BestAccuracy(s.Song.Key) ?? 0f) < AT_LEVEL),
                 RowSizes[RecommendationKind.NextStepUp]);
-            var ladder = result.Songs.Where(s => s.Kind == RecommendationKind.NextStepUp)
+            var ladder = result.Where(s => s.Kind == RecommendationKind.NextStepUp)
                 .OrderByDescending(s => s.PredictedAccuracy).ToList();
-            result.Songs.RemoveAll(s => s.Kind == RecommendationKind.NextStepUp);
-            result.Songs.AddRange(ladder);
+            result.RemoveAll(s => s.Kind == RecommendationKind.NextStepUp);
+            result.AddRange(ladder);
 
             Take(RecommendationKind.Challenge, candidates.Where(s =>
                     s.PredictedAccuracy >= CHALLENGE && s.PredictedAccuracy < STRETCH),
                 RowSizes[RecommendationKind.Challenge]);
 
-            result.Songs = result.Songs.OrderBy(s => s.Kind).ToList();
-            return result;
+            return result.OrderBy(s => s.Kind).ToList();
         }
 
         /// <summary>
@@ -149,7 +143,7 @@ namespace YARG.Core.Song.Recommendations
             ISet<string> exclude, int count, Random random)
         {
             var seen = new HashSet<string>(exclude.Concat(taste.Evidence.Keys)
-                .Select(k => library.TryGetValue(k, out var facts) ? facts.Identity : k));
+                .Select(key => SongFacts.IdentityOf(library, key)));
             var pool = library.Values.Where(s => s.Canonical && !seen.Contains(s.Identity)).ToList();
             var playable = pool.Where(s => s.ChartDifficulty.HasValue).ToList();
             var ranked = (playable.Count > 0 ? playable : pool).OrderByDescending(taste.Score).ToList();
@@ -207,7 +201,7 @@ namespace YARG.Core.Song.Recommendations
         public static List<(string Key, bool Liked, float Surprise)> RankLikelyMistakes(
             IReadOnlyDictionary<string, SongFacts> library, ProfileHistory history)
         {
-            var latest = history.LatestFeedback().Where(f => library.ContainsKey(f.Key)).ToList();
+            var latest = history.LatestFeedback(library).Where(f => library.ContainsKey(f.Key)).ToList();
             var result = new List<(string, bool, float)>();
             for (int fold = 0; fold < MISTAKE_FOLDS; fold++)
             {
@@ -215,7 +209,7 @@ namespace YARG.Core.Song.Recommendations
                 if (held.Count == 0) continue;
 
                 var keys = new HashSet<string>(held.Select(f => f.Key));
-                var taste = TasteModel.Build(library, history.WithoutFeedbackOn(keys), keys);
+                var taste = TasteModel.Build(library, history.WithoutFeedbackOn(library, keys), keys);
                 foreach (var swipe in held)
                 {
                     float score = taste.Score(library[swipe.Key]);

@@ -168,6 +168,63 @@ public class PreviewContextTests
         }
     }
 
+    [Test]
+    public async Task Create_KeepsPlayingWhenLevelingThrows()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var manager = new FakeAudioManager();
+        var mixer = new FakeStemMixer(manager, length: 10) { Level = 0.25f };
+        var entry = new TestPreviewSongEntry(() => mixer);
+
+        var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0, fadeDuration: 0,
+            false, cancellationTokenSource.Token, levelVolume: _ => throw new InvalidOperationException());
+        await Task.Delay(700);
+        Assert.That(mixer.DisposeCount, Is.Zero, "the preview is still playing");
+
+        // ReSharper disable once MethodHasAsyncOverload
+        cancellationTokenSource.Cancel();
+        await context!.WaitForCompletionAsync();
+        Assert.That(mixer.DisposeCount, Is.EqualTo(1), "cancellation still stops it");
+    }
+
+    [Test]
+    public async Task Create_SkipsLevelingOnceCancelled()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var manager = new FakeAudioManager();
+        var mixer = new FakeStemMixer(manager, length: 10) { Level = 0.25f };
+        var entry = new TestPreviewSongEntry(() => mixer);
+        bool called = false;
+
+        var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0, fadeDuration: 0,
+            false, cancellationTokenSource.Token, levelVolume: _ => { called = true; return 0.4f; });
+        await Task.Delay(100);
+        // ReSharper disable once MethodHasAsyncOverload
+        cancellationTokenSource.Cancel();
+        await context!.WaitForCompletionAsync();
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(called, Is.False);
+            Assert.That(mixer.DisposeCount, Is.EqualTo(1));
+        }
+    }
+
+    [Test]
+    public async Task Create_ShortPreviewStillFadesOnTime()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var manager = new FakeAudioManager();
+        var mixer = new FakeStemMixer(manager, length: 0.1) { Level = 0.25f };
+        var entry = new TestPreviewSongEntry(() => mixer);
+
+        using var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0,
+            fadeDuration: 0, false, cancellationTokenSource.Token, levelVolume: _ => 0.4f);
+        await Task.Delay(300);
+
+        Assert.That(mixer.FadeOutCallCount, Is.GreaterThanOrEqualTo(1));
+    }
+
     private sealed class TestPreviewSongEntry(Func<StemMixer?> loadPreviewAudio) : SongEntry
     {
         public int LoadPreviewAudioCallCount { get; private set; }
