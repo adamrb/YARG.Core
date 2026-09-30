@@ -135,6 +135,39 @@ public class PreviewContextTests
         Assert.That(mixer.DisposeCount, Is.EqualTo(1));
     }
 
+    [Test]
+    public async Task Create_LevelsVolumeFromMeasuredLoudness()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var manager = new FakeAudioManager();
+        var mixer = new FakeStemMixer(manager, length: 10) { Level = 0.25f };
+        var entry = new TestPreviewSongEntry(() => mixer);
+        float measured = 0f;
+
+        using var context = await PreviewContext.Create(
+            entry,
+            volume: 1f,
+            speed: 1f,
+            delaySeconds: 0,
+            fadeDuration: 0,
+            false,
+            cancellationTokenSource.Token,
+            levelVolume: rms =>
+            {
+                measured = rms;
+                return 0.4f;
+            });
+
+        await Task.Delay(1000);
+
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(context, Is.Not.Null);
+            Assert.That(measured, Is.EqualTo(0.25f).Within(1e-6));
+            Assert.That(mixer.LastFadeInVolume, Is.EqualTo(0.4).Within(1e-6));
+        }
+    }
+
     private sealed class TestPreviewSongEntry(Func<StemMixer?> loadPreviewAudio) : SongEntry
     {
         public int LoadPreviewAudioCallCount { get; private set; }
@@ -205,6 +238,11 @@ public class PreviewContextTests
         public int DisposeCount { get; private set; }
         public int FadeOutCallCount { get; private set; }
 
+        /// <summary>The RMS level reported to the preview, as if measured before the volume control.</summary>
+        public float Level { get; set; }
+
+        public double LastFadeInVolume { get; private set; }
+
         public override event Action SongEnd
         {
             add => _songEnd += value;
@@ -224,7 +262,10 @@ public class PreviewContextTests
 
         protected override int Play_Internal() => 0;
 
-        protected override void FadeIn_Internal(double maxVolume, double duration) { }
+        protected override void FadeIn_Internal(double maxVolume, double duration)
+        {
+            LastFadeInVolume = maxVolume;
+        }
 
         protected override void FadeOut_Internal(double duration)
         {
@@ -245,7 +286,11 @@ public class PreviewContextTests
 
         protected override int GetFFTData_Internal(float[] buffer, int fftSize, bool complex) => 0;
 
-        protected override int GetLevel_Internal(float[] level) => 0;
+        protected override int GetLevel_Internal(float[] level)
+        {
+            level[0] = Level;
+            return 0;
+        }
 
         protected override void SetPlaybackSpeed_Internal(float songSpeed, float syncAdjustment, bool shiftPitch) { }
 

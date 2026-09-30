@@ -20,7 +20,8 @@ namespace YARG.Core.Audio
             double delaySeconds,
             double fadeDuration,
             bool enableCensoring,
-            CancellationToken token)
+            CancellationToken token,
+            Func<float, float>? levelVolume = null)
         {
             try
             {
@@ -97,7 +98,7 @@ namespace YARG.Core.Audio
                 {
                     fadeDuration = previewLength / 4;
                 }
-                return new PreviewContext(mixer, previewStartTime, previewLength, fadeDuration, volume, token);
+                return new PreviewContext(mixer, previewStartTime, previewLength, fadeDuration, volume, token, levelVolume);
             }
             catch (OperationCanceledException)
             {
@@ -115,7 +116,9 @@ namespace YARG.Core.Audio
         private readonly double            _previewStartTime;
         private readonly double            _previewLength;
         private readonly double            _fadeDuration;
-        private readonly float             _volume;
+        private          float             _volume;
+        private readonly Func<float, float>? _levelVolume;
+        private          bool              _leveled;
         private readonly CancellationToken _token;
         private          bool              _disposed;
 
@@ -125,7 +128,8 @@ namespace YARG.Core.Audio
             double previewLength,
             double fadeDuration,
             float volume,
-            CancellationToken token)
+            CancellationToken token,
+            Func<float, float>? levelVolume)
         {
             _mixer = mixer;
             _previewStartTime = previewStartTime;
@@ -133,6 +137,7 @@ namespace YARG.Core.Audio
             _fadeDuration = fadeDuration;
             _volume = volume;
             _token = token;
+            _levelVolume = levelVolume;
 
             _task = Task.Run(Loop);
         }
@@ -153,6 +158,12 @@ namespace YARG.Core.Audio
                     _mixer.FadeIn(_volume, _fadeDuration);
                     _mixer.Play();
                     watch.Restart();
+                    if (_levelVolume != null && !_leveled)
+                    {
+                        _leveled = true;
+                        await LevelOnce();
+                    }
+
                     while (watch.Elapsed.TotalSeconds < _previewLength - _fadeDuration && !_token.IsCancellationRequested)
                     {
                         if (_disposed)
@@ -186,6 +197,38 @@ namespace YARG.Core.Audio
             catch (Exception ex)
             {
                 YargLogger.LogException(ex, "Error while looping song preview!");
+            }
+        }
+
+        private const int LEVEL_MEASURE_MILLISECONDS = 500;
+        private const int LEVEL_SAMPLE_MILLISECONDS = 50;
+
+        /// <summary>
+        /// Listens to the start of the first play and hands the clip's average RMS level (measured before
+        /// the volume control) to the leveling function, which returns the volume to use from then on.
+        /// </summary>
+        private async Task LevelOnce()
+        {
+            var levelVolume = _levelVolume!;
+            var level = new float[1];
+            float sum = 0f;
+            int samples = 0;
+            for (int elapsed = 0; elapsed < LEVEL_MEASURE_MILLISECONDS && !_disposed && !_token.IsCancellationRequested;
+                elapsed += LEVEL_SAMPLE_MILLISECONDS)
+            {
+                // ReSharper disable once MethodSupportsCancellation
+                await Task.Delay(LEVEL_SAMPLE_MILLISECONDS);
+                if (_mixer.GetLevel(level) == 0 && level[0] > 0.001f)
+                {
+                    sum += level[0];
+                    samples++;
+                }
+            }
+
+            if (samples > 0 && !_disposed)
+            {
+                _volume = levelVolume(sum / samples);
+                _mixer.FadeIn(_volume, _fadeDuration);
             }
         }
 
