@@ -176,10 +176,19 @@ public class PreviewContextTests
         var mixer = new FakeStemMixer(manager, length: 10) { Level = 0.25f };
         var entry = new TestPreviewSongEntry(() => mixer);
 
+        bool called = false;
         var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0, fadeDuration: 0,
-            false, cancellationTokenSource.Token, levelVolume: _ => throw new InvalidOperationException());
+            false, cancellationTokenSource.Token, levelVolume: _ =>
+            {
+                called = true;
+                throw new InvalidOperationException();
+            });
         await Task.Delay(700);
-        Assert.That(mixer.DisposeCount, Is.Zero, "the preview is still playing");
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(called, Is.True);
+            Assert.That(mixer.DisposeCount, Is.Zero, "the preview is still playing");
+        }
 
         // ReSharper disable once MethodHasAsyncOverload
         cancellationTokenSource.Cancel();
@@ -215,14 +224,40 @@ public class PreviewContextTests
     {
         using var cancellationTokenSource = new CancellationTokenSource();
         var manager = new FakeAudioManager();
-        var mixer = new FakeStemMixer(manager, length: 0.1) { Level = 0.25f };
+        var mixer = new FakeStemMixer(manager, length: 0.2) { Level = 0.25f };
         var entry = new TestPreviewSongEntry(() => mixer);
 
+        // A 0.2 s clip with a 0.05 s fade should start fading out after 0.15 s, well inside the 0.5 s
+        // leveling measurement
         using var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0,
-            fadeDuration: 0, false, cancellationTokenSource.Token, levelVolume: _ => 0.4f);
-        await Task.Delay(300);
+            fadeDuration: 0.05, false, cancellationTokenSource.Token, levelVolume: _ => 0.4f);
+        await Task.Delay(120);
+        int beforeDeadline = mixer.FadeOutCallCount;
+        await Task.Delay(180);
 
-        Assert.That(mixer.FadeOutCallCount, Is.GreaterThanOrEqualTo(1));
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(beforeDeadline, Is.Zero);
+            Assert.That(mixer.FadeOutCallCount, Is.GreaterThanOrEqualTo(1));
+        }
+    }
+
+    [Test]
+    public async Task Create_LevelsOnALaterLoopWhenThePreviewStartsSilent()
+    {
+        using var cancellationTokenSource = new CancellationTokenSource();
+        var manager = new FakeAudioManager();
+        var mixer = new FakeStemMixer(manager, length: 0.8) { Level = 0f };
+        var entry = new TestPreviewSongEntry(() => mixer);
+        float measured = 0f;
+
+        using var context = await PreviewContext.Create(entry, volume: 1f, speed: 1f, delaySeconds: 0,
+            fadeDuration: 0, false, cancellationTokenSource.Token, levelVolume: rms => { measured = rms; return 0.4f; });
+        await Task.Delay(900);
+        mixer.Level = 0.25f;
+        await Task.Delay(900);
+
+        Assert.That(measured, Is.EqualTo(0.25f).Within(1e-6));
     }
 
     private sealed class TestPreviewSongEntry(Func<StemMixer?> loadPreviewAudio) : SongEntry

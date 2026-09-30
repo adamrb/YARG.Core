@@ -53,6 +53,17 @@ namespace YARG.Core.Song.Recommendations
         public static string IdentityOf(IReadOnlyDictionary<string, SongFacts> library, string key) =>
             library.TryGetValue(key, out var song) ? song.Identity : key;
 
+        /// <summary>
+        /// A lookup from any chart's key to the key of its song's canonical chart (or the key itself if the
+        /// song is not in the library), so everything said about a song lands on one chart.
+        /// </summary>
+        public static Func<string, string> CanonicalKeyLookup(IReadOnlyDictionary<string, SongFacts> library)
+        {
+            var canonical = library.Values.Where(s => s.Canonical).GroupBy(s => s.Identity)
+                .ToDictionary(g => g.Key, g => g.First().Key);
+            return key => canonical.TryGetValue(IdentityOf(library, key), out string song) ? song : key;
+        }
+
         private string? First(FeatureType type)
         {
             foreach (var feature in Features)
@@ -129,6 +140,38 @@ namespace YARG.Core.Song.Recommendations
         /// </summary>
         public IEnumerable<FeedbackFact> LatestFeedback(IReadOnlyDictionary<string, SongFacts> library) =>
             Feedback.GroupBy(f => SongFacts.IdentityOf(library, f.Key)).Select(g => g.OrderBy(f => f.Date).Last());
+
+        /// <summary>
+        /// The latest swipe on each song, if it came after the song was last played: playing a song
+        /// replaces an earlier swipe, and a later swipe replaces what the plays said.
+        /// </summary>
+        public IEnumerable<FeedbackFact> CurrentFeedback(IReadOnlyDictionary<string, SongFacts> library) =>
+            NewerThanLastPlay(library, LatestFeedback(library), f => f.Key, f => f.Date);
+
+        /// <summary>
+        /// The latest quit on each song, if it came after the song was last finished.
+        /// </summary>
+        public IEnumerable<QuitFact> CurrentQuits(IReadOnlyDictionary<string, SongFacts> library) =>
+            NewerThanLastPlay(library,
+                Quits.GroupBy(q => SongFacts.IdentityOf(library, q.Key)).Select(g => g.OrderBy(q => q.Date).Last()),
+                q => q.Key, q => q.Date);
+
+        private IEnumerable<T> NewerThanLastPlay<T>(IReadOnlyDictionary<string, SongFacts> library, IEnumerable<T> facts,
+            Func<T, string> keyOf, Func<T, DateTime> dateOf)
+        {
+            var lastPlayed = new Dictionary<string, DateTime>();
+            foreach (var play in Plays)
+            {
+                string song = SongFacts.IdentityOf(library, play.Key);
+                if (!lastPlayed.TryGetValue(song, out var date) || play.Date > date)
+                {
+                    lastPlayed[song] = play.Date;
+                }
+            }
+
+            return facts.Where(fact =>
+                !lastPlayed.TryGetValue(SongFacts.IdentityOf(library, keyOf(fact)), out var played) || dateOf(fact) > played);
+        }
 
         /// <summary>
         /// A copy without the swipes on the given songs (on any of their charts), for judging those swipes

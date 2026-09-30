@@ -41,8 +41,6 @@ namespace YARG.Core.Song.Recommendations
         private const double RECENTLY_PLAYED_DAYS = 2;
         private const double FRESHNESS_NOISE = 0.05;
         private const double DISCOVERY_NOISE = 0.5;
-        private const int ARTIST_PER_ROW = 1;
-        private const int ARTIST_TOTAL = 1;
         private const int GENRE_PER_ROW = 3;
         private const int GENRE_TOTAL = 6;
 
@@ -62,15 +60,14 @@ namespace YARG.Core.Song.Recommendations
         {
             string IdOf(string key) => SongFacts.IdentityOf(library, key);
 
-            // Plays and passes apply to every chart of a song. A pass hides a song only until it is played.
+            // Plays and passes apply to every chart of a song. A pass hides a song until it is played again.
             var played = new HashSet<string>(history.Plays.Select(p => IdOf(p.Key)));
             var recent = new HashSet<string>(history.Plays
                 .Where(p => (history.Now - p.Date).TotalDays < RECENTLY_PLAYED_DAYS)
                 .Select(p => IdOf(p.Key)));
-            var passed = new HashSet<string>(history.LatestFeedback(library)
+            var passed = new HashSet<string>(history.CurrentFeedback(library)
                 .Where(f => !f.Liked)
-                .Select(f => IdOf(f.Key))
-                .Where(id => !played.Contains(id)));
+                .Select(f => IdOf(f.Key)));
 
             // A little randomness keeps lists fresh. Discovery adds a larger bonus scaled by how unsure the
             // model is, for one exploratory For You slot.
@@ -88,7 +85,7 @@ namespace YARG.Core.Song.Recommendations
                 .ToList();
 
             var result = new List<RecommendedSong>();
-            var variety = new VarietyRules(ARTIST_PER_ROW, ARTIST_TOTAL, GENRE_PER_ROW, GENRE_TOTAL);
+            var variety = new VarietyRules(GENRE_PER_ROW, GENRE_TOTAL);
 
             void Take(RecommendationKind kind, IEnumerable<RecommendedSong> ordered, int count)
             {
@@ -154,7 +151,7 @@ namespace YARG.Core.Song.Recommendations
             var bands = new[] { ranked.GetRange(0, topEnd), Slice(ranked, topEnd, middleEnd), Slice(ranked, middleEnd, ranked.Count) };
 
             var picked = new List<SongFacts>();
-            var variety = new VarietyRules(artistPerGroup: 1, artistTotal: 1);
+            var variety = new VarietyRules();
             var explored = new Dictionary<SongFeature, int>();
             int band = random.Next(bands.Length);
             for (int misses = 0; picked.Count < count && misses < bands.Length; band = (band + 1) % bands.Length)
@@ -202,6 +199,7 @@ namespace YARG.Core.Song.Recommendations
             IReadOnlyDictionary<string, SongFacts> library, ProfileHistory history)
         {
             var latest = history.LatestFeedback(library).Where(f => library.ContainsKey(f.Key)).ToList();
+            var songKey = SongFacts.CanonicalKeyLookup(library);
             var result = new List<(string, bool, float)>();
             for (int fold = 0; fold < MISTAKE_FOLDS; fold++)
             {
@@ -212,7 +210,8 @@ namespace YARG.Core.Song.Recommendations
                 var taste = TasteModel.Build(library, history.WithoutFeedbackOn(library, keys), keys);
                 foreach (var swipe in held)
                 {
-                    float score = taste.Score(library[swipe.Key]);
+                    // Judged on the chart the model learned about, whichever chart was swiped
+                    float score = taste.Score(library[songKey(swipe.Key)]);
                     result.Add((swipe.Key, swipe.Liked, swipe.Liked ? -score : score));
                 }
             }

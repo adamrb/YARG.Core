@@ -3,25 +3,21 @@ using System.Collections.Generic;
 namespace YARG.Core.Song.Recommendations
 {
     /// <summary>
-    /// Keeps a set of picks varied: each song appears once (across all its charts), and artists and genres
-    /// are capped per group (such as a recommendation row) and overall.
+    /// Keeps a set of picks varied: each song (across all its charts) and each artist appears once, and
+    /// genres are capped per group (such as a recommendation row) and overall.
     /// </summary>
-    public sealed class VarietyRules
+    internal sealed class VarietyRules
     {
-        private readonly int _artistPerGroup;
-        private readonly int _artistTotal;
         private readonly int _genrePerGroup;
         private readonly int _genreTotal;
 
         private readonly HashSet<string> _identities = new();
-        private readonly Dictionary<(int, string), int> _groupCounts = new();
-        private readonly Dictionary<string, int> _totalCounts = new();
+        private readonly HashSet<string> _artists = new();
+        private readonly Dictionary<(int, string), int> _genreInGroup = new();
+        private readonly Dictionary<string, int> _genreOverall = new();
 
-        public VarietyRules(int artistPerGroup, int artistTotal, int genrePerGroup = int.MaxValue,
-            int genreTotal = int.MaxValue)
+        public VarietyRules(int genrePerGroup = int.MaxValue, int genreTotal = int.MaxValue)
         {
-            _artistPerGroup = artistPerGroup;
-            _artistTotal = artistTotal;
             _genrePerGroup = genrePerGroup;
             _genreTotal = genreTotal;
         }
@@ -29,8 +25,9 @@ namespace YARG.Core.Song.Recommendations
         public bool Allows(SongFacts song, int group = 0)
         {
             return !_identities.Contains(song.Identity) &&
-                UnderCap(group, "a:", song.Artist, _artistPerGroup, _artistTotal) &&
-                UnderCap(group, "g:", song.Genre, _genrePerGroup, _genreTotal);
+                (song.Artist == null || !_artists.Contains(song.Artist)) &&
+                (song.Genre == null || (Get(_genreInGroup, (group, song.Genre)) < _genrePerGroup &&
+                    Get(_genreOverall, song.Genre) < _genreTotal));
         }
 
         /// <summary>
@@ -41,26 +38,14 @@ namespace YARG.Core.Song.Recommendations
             if (!Allows(song, group)) return false;
 
             _identities.Add(song.Identity);
-            Count(group, "a:", song.Artist);
-            Count(group, "g:", song.Genre);
+            if (song.Artist != null) _artists.Add(song.Artist);
+            if (song.Genre != null)
+            {
+                _genreInGroup[(group, song.Genre)] = Get(_genreInGroup, (group, song.Genre)) + 1;
+                _genreOverall[song.Genre] = Get(_genreOverall, song.Genre) + 1;
+            }
+
             return true;
-        }
-
-        private bool UnderCap(int group, string kind, string? value, int perGroup, int total)
-        {
-            if (value == null) return true;
-
-            string key = kind + value;
-            return Get(_groupCounts, (group, key)) < perGroup && Get(_totalCounts, key) < total;
-        }
-
-        private void Count(int group, string kind, string? value)
-        {
-            if (value == null) return;
-
-            string key = kind + value;
-            _groupCounts[(group, key)] = Get(_groupCounts, (group, key)) + 1;
-            _totalCounts[key] = Get(_totalCounts, key) + 1;
         }
 
         private static int Get<TKey>(Dictionary<TKey, int> counts, TKey key) where TKey : notnull =>

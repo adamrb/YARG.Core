@@ -39,7 +39,7 @@ namespace YARG.Core.Song.Recommendations
                 {
                     valid = float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i - 1])
                         && !float.IsNaN(values[i - 1]) && !float.IsInfinity(values[i - 1]);
-                    length += values[i - 1] * values[i - 1];
+                    length += (double) values[i - 1] * values[i - 1];
                 }
 
                 if (!valid || length == 0) continue;

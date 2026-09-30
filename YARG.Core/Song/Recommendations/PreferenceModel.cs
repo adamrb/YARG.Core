@@ -15,7 +15,7 @@ namespace YARG.Core.Song.Recommendations
     /// approach to implicit feedback: in a big library a random song is more likely than not one the player
     /// would skip.
     /// </remarks>
-    public sealed class PreferenceModel
+    internal sealed class PreferenceModel
     {
         private const float MAX_EXAMPLE_WEIGHT = 3f;
         private const float IMPLICIT_NEGATIVE_WEIGHT = 0.2f;

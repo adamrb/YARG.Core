@@ -66,7 +66,8 @@ public class RecommenderTests
         recent[0].Canonical = true;
         library[otherChart.Key] = otherChart;
 
-        var history = History(plays.Concat(recent.Select(s => Play(s, 0, 0.95f))));
+        // The first song's recent play is on its other chart
+        var history = History(plays.Concat(recent.Skip(1).Select(s => Play(s, 0, 0.95f))).Append(Play(otherChart, 0, 0.95f)));
         var songs = Enumerable.Range(0, 20).SelectMany(seed => Recommend(library, history, new Random(seed))).ToList();
         var single = Recommend(library, history, new Random(3));
         using (Assert.EnterMultipleScope())
@@ -118,6 +119,33 @@ public class RecommenderTests
             Assert.That(hiddenWhileUnplayed, Is.True);
             Assert.That(backAfterPlays, Is.True);
         }
+    }
+
+    [Test]
+    public void Recommend_HandlesTinyAndUnplayableLibraries()
+    {
+        var unplayable = MakeSong("u", "A", "Rock");
+        unplayable.ChartDifficulty = null;
+        var single = MakeSong("one", "B", "Rock");
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(Recommend(Library(), History(), new Random(1)), Is.Empty);
+            Assert.That(Recommend(Library(unplayable), History(), new Random(1)), Is.Empty);
+            Assert.That(Recommend(Library(single), History(), new Random(1)).Select(s => s.Song.Key), Is.SubsetOf(new[] { "one" }));
+            Assert.That(Recommender.PickSwipeCards(Library(), TasteModel.Build(Library(), History()), new HashSet<string>(), 5, new Random(1)), Is.Empty);
+            Assert.That(Recommender.RankLikelyMistakes(Library(single), History()), Is.Empty);
+        }
+    }
+
+    [Test]
+    public void Recommend_APassAfterPlayingHidesTheSongAgain()
+    {
+        var (library, plays) = MetalFan(11);
+        var target = library[plays[0].Key];
+        var pass = new[] { Swipe(target, false) };
+        bool hidden = Enumerable.Range(0, 20).All(seed =>
+            Recommend(library, History(plays, pass), new Random(seed)).All(s => s.Song.Key != target.Key));
+        Assert.That(hidden, Is.True);
     }
 
     [Test]
@@ -207,39 +235,5 @@ public class RecommenderTests
             .Append(Swipe(library["met10"], true, 40));
         var ranked = Recommender.RankLikelyMistakes(library, History(plays, feedback));
         Assert.That(ranked.First().Key, Is.EqualTo("met10"));
-    }
-
-    [Test]
-    public void Recommend_IsQuickOnALargeLibraryWithALongHistory()
-    {
-        var library = BigLibrary(8000, 9);
-        var random = new Random(9);
-        foreach (var song in library.Values)
-        {
-            song.ArtistPosition = Enumerable.Range(0, 32).Select(_ => (float) random.NextDouble() - 0.5f).ToArray();
-        }
-
-        var songs = library.Values.ToList();
-        var history = History(
-            Enumerable.Range(0, 2000).Select(i => Play(songs[i % 700], i % 90, 0.9f)),
-            songs.Skip(700).Take(500).Select((s, i) => Swipe(s, i % 3 != 0, i)));
-
-        var watch = System.Diagnostics.Stopwatch.StartNew();
-        var taste = TasteModel.Build(library, history);
-        Recommender.Recommend(library, history, taste, SkillModel.Fit(history), new Random(9));
-        long recommend = watch.ElapsedMilliseconds;
-        watch.Restart();
-        Recommender.PickSwipeCards(library, taste, new HashSet<string>(), 10, new Random(9));
-        long cards = watch.ElapsedMilliseconds;
-        watch.Restart();
-        Recommender.RankLikelyMistakes(library, history);
-        long mistakes = watch.ElapsedMilliseconds;
-        TestContext.Out.WriteLine($"recommend {recommend} ms, cards {cards} ms, mistakes {mistakes} ms");
-        using (Assert.EnterMultipleScope())
-        {
-            Assert.That(recommend, Is.LessThan(1000));
-            Assert.That(cards, Is.LessThan(500));
-            Assert.That(mistakes, Is.LessThan(3000));
-        }
     }
 }

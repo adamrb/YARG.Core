@@ -12,8 +12,9 @@ namespace YARG.Core.Song.Recommendations
     /// negative for a dislike. Coming back to a song on another day is the strongest signal, especially
     /// after a poor score, and play history is judged against the profile's typical play, so a song played
     /// once ranks below the ones it keeps returning to. A low score never counts against a song (that is
-    /// the <see cref="SkillModel"/>'s job). Favorites, swipes and quits keep their own sign; a swipe counts
-    /// only until the song is actually played. All charts of a song count as one song. A
+    /// the <see cref="SkillModel"/>'s job). Favorites, swipes and quits keep their own sign. The newest
+    /// signal wins: a swipe or quit counts only if it came after the song was last played, and a swipe
+    /// after the last play replaces what the plays said. All charts of a song count as one song. A
     /// <see cref="PreferenceModel"/> is then trained on that evidence.
     /// </remarks>
     public sealed class TasteModel
@@ -48,13 +49,11 @@ namespace YARG.Core.Song.Recommendations
             ISet<string>? heldOut = null)
         {
             var model = new TasteModel();
-            var canonical = library.Values.Where(s => s.Canonical).GroupBy(s => s.Identity)
-                .ToDictionary(g => g.Key, g => g.First().Key);
-            string SongKey(string key) =>
-                canonical.TryGetValue(SongFacts.IdentityOf(library, key), out string song) ? song : key;
+            var songKey = SongFacts.CanonicalKeyLookup(library);
+            var swipes = history.CurrentFeedback(library).ToDictionary(f => songKey(f.Key));
 
             var played = new Dictionary<string, float>();
-            foreach (var songPlays in history.Plays.GroupBy(p => SongKey(p.Key)))
+            foreach (var songPlays in history.Plays.GroupBy(p => songKey(p.Key)))
             {
                 var days = songPlays
                     .GroupBy(p => p.Date.Date)
@@ -74,28 +73,24 @@ namespace YARG.Core.Song.Recommendations
             }
 
             float baseline = played.Count > 0 ? BASELINE_SHARE * played.Values.Average() : 0f;
-            foreach (var (key, evidence) in played)
+            foreach (var (key, evidence) in played.Where(p => !swipes.ContainsKey(p.Key)))
             {
                 model.Add(key, evidence - baseline);
             }
 
-            foreach (var quit in history.Quits)
+            foreach (var (key, swipe) in swipes)
             {
-                model.Add(SongKey(quit.Key), quit.Progress < 0.5f ? EARLY_QUIT : LATE_QUIT);
+                model.Add(key, swipe.Liked ? SWIPE_LIKE : SWIPE_PASS);
             }
 
-            foreach (string key in history.Favorites)
+            foreach (var quit in history.CurrentQuits(library))
             {
-                model.Add(SongKey(key), FAVORITE);
+                model.Add(songKey(quit.Key), quit.Progress < 0.5f ? EARLY_QUIT : LATE_QUIT);
             }
 
-            foreach (var swipe in history.LatestFeedback(library))
+            foreach (string key in history.Favorites.Select(songKey).Distinct())
             {
-                string key = SongKey(swipe.Key);
-                if (!played.ContainsKey(key))
-                {
-                    model.Add(key, swipe.Liked ? SWIPE_LIKE : SWIPE_PASS);
-                }
+                model.Add(key, FAVORITE);
             }
 
             foreach (string key in model._evidence.Keys.Where(library.ContainsKey))

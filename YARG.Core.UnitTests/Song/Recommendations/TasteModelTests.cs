@@ -96,6 +96,33 @@ public class TasteModelTests
     }
 
     [Test]
+    public void Evidence_TheNewestSignalWins()
+    {
+        var song = MakeSong("s", "A", "Pop");
+        var library = Library(song);
+        var quits = Enumerable.Range(0, 20).Select(i => new QuitFact { Key = "s", Progress = 0.1f, Date = Now.AddDays(-60 - i) });
+        var playThenPass = TasteModel.Build(library, History(new[] { Play(song, 30, 0.9f), Play(song, 20, 0.9f) }, new[] { Swipe(song, false) }));
+        var quitsThenPlays = TasteModel.Build(library, History(new[] { Play(song, 10, 0.9f), Play(song, 5, 0.9f) }, quits: quits));
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(playThenPass.Evidence["s"], Is.LessThan(0), "a pass after playing");
+            Assert.That(quitsThenPlays.Evidence["s"], Is.GreaterThan(0), "finishing it later outweighs old quits");
+        }
+    }
+
+    [Test]
+    public void Evidence_FavoritingTwoChartsOfASongCountsOnce()
+    {
+        var first = MakeSong("c1", "A", "Rock", title: "Song");
+        var second = MakeSong("c2", "A", "Rock", title: "Song");
+        second.Canonical = false;
+        var library = Library(first, second);
+        var one = TasteModel.Build(library, History(favorites: new[] { "c1" }));
+        var both = TasteModel.Build(library, History(favorites: new[] { "c1", "c2" }));
+        Assert.That(both.Evidence["c1"], Is.EqualTo(one.Evidence["c1"]));
+    }
+
+    [Test]
     public void Score_GeneralizesThroughSharedFeatures()
     {
         var liked = MakeSong("liked", "B", "Pop");

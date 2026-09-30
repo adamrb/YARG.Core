@@ -160,7 +160,6 @@ namespace YARG.Core.Audio
                     watch.Restart();
                     if (_levelVolume != null && !_leveled)
                     {
-                        _leveled = true;
                         await LevelOnce(watch);
                     }
 
@@ -206,9 +205,10 @@ namespace YARG.Core.Audio
         private const int LEVEL_SAMPLE_MILLISECONDS = 50;
 
         /// <summary>
-        /// Listens to the start of the first play and hands the clip's average RMS level (measured before
-        /// the volume control) to the leveling function, which returns the volume to use from then on.
-        /// Stops early for clips shorter than the measurement, and does nothing once the preview is canceled.
+        /// Listens to the start of a play and hands the clip's average RMS level (measured before the
+        /// volume control) to the leveling function, which returns the volume to use from then on. A play
+        /// that starts silent is measured again on the next loop. Stops early for clips shorter than the
+        /// measurement, and does nothing once the preview is canceled.
         /// </summary>
         private async Task LevelOnce(Stopwatch playTime)
         {
@@ -237,6 +237,7 @@ namespace YARG.Core.Audio
                 return;
             }
 
+            _leveled = true;
             try
             {
                 _volume = _levelVolume!(sum / samples);
