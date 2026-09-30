@@ -14,19 +14,28 @@ public class SongMapTests
         "broken line",
     });
 
+    private static SongFacts Placed(string artist, string title, SongMap? map = null)
+    {
+        var song = new SongFacts { Key = title };
+        (map ?? Map).Place(song, artist, title);
+        return song;
+    }
+
     [Test]
     public void Place_UsesTheSongsOwnPositionAndPopularity()
     {
-        var (position, popularity) = Map.Place("The Presidents of the United States of America (Harmonix)", "Peaches (Live)");
+        var song = Placed("The Presidents of the United States of America (Harmonix)", "Peaches (Live)");
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(position, Is.EqualTo(new[] { 1f, 0f }));
-            Assert.That(popularity, Is.EquivalentTo(new[]
+            Assert.That(song.OnMap, Is.True);
+            Assert.That(song.Position, Is.EqualTo(new[] { 1f, 0f }));
+            Assert.That(song.ArtistPosition, Is.EqualTo(new[] { 0.6f, 0.8f }));
+            Assert.That(song.Features, Is.EquivalentTo(new[]
             {
                 new SongFeature(FeatureType.ArtistRank, "hit"),
                 new SongFeature(FeatureType.Listeners, "under 5000"),
             }));
-            Assert.That(Map.Place("The Presidents of the United States of America", "Kitty").Popularity,
+            Assert.That(Placed("The Presidents of the United States of America", "Kitty").Features,
                 Does.Contain(new SongFeature(FeatureType.ArtistRank, "deep cut")));
         }
     }
@@ -36,10 +45,12 @@ public class SongMapTests
     {
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(Map.Place("The Presidents of the United States of America", "Lump").Position, Is.EqualTo(new[] { 0.6f, 0.8f }));
-            Assert.That(Map.Place("The Presidents of the United States of America", "Lump").Popularity, Is.Empty);
-            Assert.That(Map.Place("Nobody", "Anything").Position, Is.Null);
-            Assert.That(SongMap.Similarity(Map.Place("The Presidents of the United States of America", "Peaches").Position,
+            var lump = Placed("The Presidents of the United States of America", "Lump");
+            Assert.That(lump.OnMap, Is.False);
+            Assert.That(lump.Position, Is.EqualTo(new[] { 0.6f, 0.8f }));
+            Assert.That(lump.Features, Is.Empty);
+            Assert.That(Placed("Nobody", "Anything").Position, Is.Null);
+            Assert.That(SongMap.Similarity(Placed("The Presidents of the United States of America", "Peaches").Position,
                 new[] { 1f, 0f }), Is.EqualTo(1f));
         }
     }
@@ -70,9 +81,9 @@ public class SongMapTests
         {
             Assert.That(map.ArtistCount, Is.EqualTo(3));
             Assert.That(map.TrackCount, Is.Zero);
-            Assert.That(map.Place("g", "x").Position, Is.EqualTo(new[] { 1f, 0f }));
-            Assert.That(map.Place("a", "x").Position, Is.EqualTo(new[] { 0.6f, 0.8f }).Within(1e-6f));
-            Assert.That(map.Place("f", "x").Position, Is.EqualTo(new[] { 0.70710677f, 0.70710677f }).Within(1e-6f));
+            Assert.That(Placed("g", "x", map).Position, Is.EqualTo(new[] { 1f, 0f }));
+            Assert.That(Placed("a", "x", map).Position, Is.EqualTo(new[] { 0.6f, 0.8f }).Within(1e-6f));
+            Assert.That(Placed("f", "x", map).Position, Is.EqualTo(new[] { 0.70710677f, 0.70710677f }).Within(1e-6f));
         }
     }
 }

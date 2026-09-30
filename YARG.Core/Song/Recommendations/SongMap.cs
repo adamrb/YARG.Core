@@ -77,29 +77,28 @@ namespace YARG.Core.Song.Recommendations
         }
 
         /// <summary>
-        /// Where the song sits (its own position, or its artist's if the map does not know the song) and
-        /// what the map knows about its popularity, as features for the taste model.
+        /// Fills in what the map knows about a song: its position (its own, or its artist's if the map does
+        /// not know the song), its artist's position, whether the map knows the song itself, and its
+        /// popularity, added to its features.
         /// </summary>
         /// <param name="artist">The artist as written in song metadata; normalized here.</param>
         /// <param name="title">The title as written in song metadata; normalized here.</param>
-        public (float[]? Position, SongFeature[] Popularity) Place(string? artist, string? title)
+        public void Place(SongFacts song, string? artist, string? title)
         {
             string artistKey = SongNormalizer.Artist(artist);
-            if (_tracks.TryGetValue(artistKey + "|" + SongNormalizer.Title(title), out var track))
+            song.ArtistPosition = _artists.TryGetValue(artistKey, out var artistPosition) ? artistPosition : null;
+            song.OnMap = _tracks.TryGetValue(artistKey + "|" + SongNormalizer.Title(title), out var track);
+            song.Position = song.OnMap ? track.Position : song.ArtistPosition;
+            if (song.OnMap)
             {
-                return (track.Position, new[]
+                song.Features = song.Features.Append(new SongFeature(FeatureType.ArtistRank, track.ArtistRank switch
                 {
-                    new SongFeature(FeatureType.ArtistRank, track.ArtistRank switch
-                    {
-                        <= 0.1f => "hit",
-                        <= 0.4f => "known",
-                        _       => "deep cut",
-                    }),
-                    new SongFeature(FeatureType.Listeners, ListenerBuckets.First(b => track.Listeners < b.Below).Name),
-                });
+                    <= 0.1f => "hit",
+                    <= 0.4f => "known",
+                    _       => "deep cut",
+                })).Append(new SongFeature(FeatureType.Listeners,
+                    ListenerBuckets.First(b => track.Listeners < b.Below).Name)).ToArray();
             }
-
-            return (_artists.TryGetValue(artistKey, out var position) ? position : null, Array.Empty<SongFeature>());
         }
 
         /// <summary>
