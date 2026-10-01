@@ -27,9 +27,7 @@ public class SongMapTests
         var song = Placed("The Presidents of the United States of America (Harmonix)", "Peaches (Live)");
         using (Assert.EnterMultipleScope())
         {
-            Assert.That(song.OnMap, Is.True);
             Assert.That(song.Position, Is.EqualTo(new[] { 1f, 0f }));
-            Assert.That(song.ArtistPosition, Is.EqualTo(new[] { 0.6f, 0.8f }));
             Assert.That(song.Features, Is.EquivalentTo(new[]
             {
                 new SongFeature(FeatureType.ArtistRank, "hit"),
@@ -46,9 +44,9 @@ public class SongMapTests
         using (Assert.EnterMultipleScope())
         {
             var lump = Placed("The Presidents of the United States of America", "Lump");
-            Assert.That(lump.OnMap, Is.False);
             Assert.That(lump.Position, Is.EqualTo(new[] { 0.6f, 0.8f }));
-            Assert.That(lump.Features, Is.Empty);
+            Assert.That(lump.Features, Is.EqualTo(new[] { new SongFeature(FeatureType.Listeners, "not on the map") }));
+            Assert.That(SongMap.PopularityRank(lump), Is.Zero);
             Assert.That(Placed("Nobody", "Anything").Position, Is.Null);
             Assert.That(SongMap.Similarity(Placed("The Presidents of the United States of America", "Peaches").Position,
                 new[] { 1f, 0f }), Is.EqualTo(1f));

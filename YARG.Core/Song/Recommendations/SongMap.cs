@@ -39,6 +39,8 @@ namespace YARG.Core.Song.Recommendations
             (200, "under 200"), (1000, "under 1000"), (5000, "under 5000"), (int.MaxValue, "5000 or more"),
         };
 
+        private const string UNKNOWN_LISTENERS = "not on the map";
+
         private readonly Dictionary<string, float[]> _artists = new();
         private readonly Dictionary<string, Track> _tracks = new();
         private int _dims;
@@ -78,19 +80,16 @@ namespace YARG.Core.Song.Recommendations
 
         /// <summary>
         /// Fills in what the map knows about a song: its position (its own, or its artist's if the map does
-        /// not know the song), its artist's position, whether the map knows the song itself, and its
-        /// popularity, added to its features.
+        /// not know the song) and its popularity, added to its features.
         /// </summary>
         /// <param name="artist">The artist as written in song metadata; normalized here.</param>
         /// <param name="title">The title as written in song metadata; normalized here.</param>
         public void Place(SongFacts song, string? artist, string? title)
         {
             string artistKey = SongNormalizer.Artist(artist);
-            song.ArtistPosition = _artists.TryGetValue(artistKey, out var artistPosition) ? artistPosition : null;
-            song.OnMap = _tracks.TryGetValue(artistKey + "|" + SongNormalizer.Title(title), out var track);
-            song.Position = song.OnMap ? track.Position : song.ArtistPosition;
-            if (song.OnMap)
+            if (_tracks.TryGetValue(artistKey + "|" + SongNormalizer.Title(title), out var track))
             {
+                song.Position = track.Position;
                 song.Features = song.Features.Append(new SongFeature(FeatureType.ArtistRank, track.ArtistRank switch
                 {
                     <= 0.1f => "hit",
@@ -98,6 +97,14 @@ namespace YARG.Core.Song.Recommendations
                     _       => "deep cut",
                 })).Append(new SongFeature(FeatureType.Listeners,
                     ListenerBuckets.First(b => track.Listeners < b.Below).Name)).ToArray();
+            }
+            else
+            {
+                song.Position = _artists.TryGetValue(artistKey, out var artistPosition) ? artistPosition : null;
+
+                // That nobody on the map listens to a song says something too; the model learns whether this
+                // player likes such songs (one real profile liked 73% of songs on the map and 6% by unknown artists)
+                song.Features = song.Features.Append(new SongFeature(FeatureType.Listeners, UNKNOWN_LISTENERS)).ToArray();
             }
         }
 
