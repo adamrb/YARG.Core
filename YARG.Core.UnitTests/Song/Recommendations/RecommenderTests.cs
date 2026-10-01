@@ -81,6 +81,20 @@ public class RecommenderTests
     }
 
     [Test]
+    public void Recommend_ForYouOpensWithSomethingNewAndEndsWithAFavorite()
+    {
+        var (library, plays) = MetalFan(12);
+        var played = plays.Select(p => p.Key).ToHashSet();
+        var forYou = Recommend(library, History(plays), new Random(12)).Where(s => s.Kind == RecommendationKind.ForYou).ToList();
+        using (Assert.EnterMultipleScope())
+        {
+            Assert.That(played.Contains(forYou.First().Song.Key), Is.False);
+            Assert.That(played.Contains(forYou.Last().Song.Key), Is.True);
+            Assert.That(forYou.Count(s => played.Contains(s.Song.Key)), Is.EqualTo(1));
+        }
+    }
+
+    [Test]
     public void Recommend_OffersOnlyOneVersionOfASong()
     {
         var library = BigLibrary(300, 4);

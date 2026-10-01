@@ -102,13 +102,21 @@ namespace YARG.Core.Song.Recommendations
 
             int RemainingIn(RecommendationKind kind) => RowSizes[kind] - result.Count(s => s.Kind == kind);
 
-            // For You: one known favorite, the best matches not played yet, and one discovery
+            // For You: one known favorite, the best matches not played yet, and one discovery. The favorite is
+            // picked first, so it has first claim on its artist and genre, but shown last, so the row opens
+            // with something new.
             var forYou = candidates.Where(s => s.PredictedAccuracy >= STRETCH).ToList();
             Take(RecommendationKind.ForYou, forYou.Where(s => played.Contains(s.Song.Identity)), 1);
+            var familiar = result.FirstOrDefault(s => s.Kind == RecommendationKind.ForYou);
             Take(RecommendationKind.ForYou, forYou.Where(s => !played.Contains(s.Song.Identity)),
                 RemainingIn(RecommendationKind.ForYou) - 1);
             Take(RecommendationKind.ForYou, forYou.OrderByDescending(s => discovery[s.Song]), 1);
             Take(RecommendationKind.ForYou, forYou, RemainingIn(RecommendationKind.ForYou));
+            if (familiar != null)
+            {
+                result.Remove(familiar);
+                result.Add(familiar);
+            }
 
             Take(RecommendationKind.AtYourLevel, candidates.Where(s => s.PredictedAccuracy >= AT_LEVEL),
                 RowSizes[RecommendationKind.AtYourLevel]);
